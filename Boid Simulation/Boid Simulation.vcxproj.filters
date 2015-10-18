@@ -1,0 +1,272 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="openCL kernel">
+      <UniqueIdentifier>{b3135614-eb17-47a4-b83d-2698103510af}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="shader">
+      <UniqueIdentifier>{0e96944b-8a7a-4ce4-9ec4-d2c6b693f0ea}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="stdafx.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shader_utils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="gfx.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="worldBox.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="simParam.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="vectorTypes.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="boidModel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="clHelper.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="simulation.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="logFile.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="vector_types.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="renderable.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="overlayText.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="worldGround.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="skyBox.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="stb_image.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="column.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="tunnel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="stdafx.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="shader_utils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="gfx.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Shader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="WorldBox.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="BoidModelGrid.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="BoidModelSH.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="BoidModelSimple.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="CLHelper.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="LogFile.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Simulation.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="OverlayText.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="BoidModelSH_2D.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="WorldGround.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="BoidModelGrid_2D.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Skybox.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="boidModelSHWay1.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="BoidModelSHWay2.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="boidModelSHObstacle.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Column.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Tunnel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="BoidModelSHObstacleTunnel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="BoidModelSHCombined.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="kernels\bitonic_sort.cl">
+      <Filter>openCL kernel</Filter>
+    </None>
+    <None Include="kernels\boidModelGrid_2D_kernel_v1.cl">
+      <Filter>openCL kernel</Filter>
+    </None>
+    <None Include="kernels\boidModelGrid_2D_kernel_v2.cl">
+      <Filter>openCL kernel</Filter>
+    </None>
+    <None Include="kernels\boidModelGrid_kernel_v1.cl">
+      <Filter>openCL kernel</Filter>
+    </None>
+    <None Include="kernels\boidModelGrid_kernel_v2.cl">
+      <Filter>openCL kernel</Filter>
+    </None>
+    <None Include="kernels\boidModelGrid_kernel_v3.cl">
+      <Filter>openCL kernel</Filter>
+    </None>
+    <None Include="kernels\boidModelSH_2D_kernel_v1.cl">
+      <Filter>openCL kernel</Filter>
+    </None>
+    <None Include="kernels\boidModelSH_kernel_v1.cl">
+      <Filter>openCL kernel</Filter>
+    </None>
+    <None Include="kernels\boidModelSH_kernel_v2.cl">
+      <Filter>openCL kernel</Filter>
+    </None>
+    <None Include="kernels\boidModelSHCombined_kernel_v1.cl">
+      <Filter>openCL kernel</Filter>
+    </None>
+    <None Include="kernels\boidModelSHObstacle_kernel_v1.cl">
+      <Filter>openCL kernel</Filter>
+    </None>
+    <None Include="kernels\boidModelSHObstacleTunnel_kernel_v1.cl">
+      <Filter>openCL kernel</Filter>
+    </None>
+    <None Include="kernels\boidModelSHWay1_kernel_v1.cl">
+      <Filter>openCL kernel</Filter>
+    </None>
+    <None Include="kernels\boidModelSHWay2_kernel_v1.cl">
+      <Filter>openCL kernel</Filter>
+    </None>
+    <None Include="kernels\boidModelSimple_kernel_v1.cl">
+      <Filter>openCL kernel</Filter>
+    </None>
+    <None Include="kernels\boidModelSimple_kernel_v2.cl">
+      <Filter>openCL kernel</Filter>
+    </None>
+    <None Include="kernels\boidModelSimple_kernel_v3.cl">
+      <Filter>openCL kernel</Filter>
+    </None>
+    <None Include="shaders\boid.f.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\boid.v.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\boidTri.f.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\boidTri.g.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\boidTri.v.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\box.f.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\box.v.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\column.f.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\column.v.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\skybox.f.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\skybox.v.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\text.f.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\text.v.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\triangle2.f.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\triangle2.v.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\worldBox.f.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\worldBox.v.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\worldGround.f.glsl">
+      <Filter>shader</Filter>
+    </None>
+    <None Include="shaders\worldGround.v.glsl">
+      <Filter>shader</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="ReadMe.txt" />
+  </ItemGroup>
+</Project>
