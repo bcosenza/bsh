@@ -11,6 +11,7 @@ Furthermore, we demonstrate how both the innate parallelism and the compact coef
 
 If you use this code for research purpose, please cite the paper:
 
+```
 @inproceedings{Cosenza15,
   author    = {Biagio Cosenza},
   title     = {{Behavioral Spherical Harmonics for Long-Range Agents' Interaction}},
@@ -18,6 +19,7 @@ If you use this code for research purpose, please cite the paper:
   pages     = {},
   year      = {2015}
 }
+```
 
 BSH's Visual Studio project has been tested with Visual Studio 2013 Community Edition and many NVIDIA GPUs.
 The Behavioural Spherical Harmonics (BSH) code is licensed under BSD 3 (or "BSD Simplified").
