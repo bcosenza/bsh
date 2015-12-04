@@ -1,4 +1,4 @@
-About
+Behavioral Spherical Harmonic
 ==============
 Behavioral spherical harmonic (BSH) is a novel approach to efficiently and compactly represent the directional-dependent behavior of agent. BSH is based on spherical harmonics to project the directional information of a group of multiple agents to a vector of few coefficients; thus, BSH drastically reduces the complexity of the directional evaluation, as it requires only few agent-group interactions instead of multiple agent-agent ones. 
 We show how the BSH model can efficiently model intricate behaviors such as long-range collision avoidance, reaching interactive performance and avoiding agent congestion on challenging multi-groups scenarios. 
