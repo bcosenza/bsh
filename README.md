@@ -16,8 +16,8 @@ If you use this code for research purpose, please cite the paper:
   author    = {Biagio Cosenza},
   title     = {{Behavioral Spherical Harmonics for Long-Range Agents' Interaction}},
   booktitle = {Euro-Par 2015: Parallel Processing Workshops - PADABS},
-  pages     = {},
-  year      = {2015}
+  pages     = {392--404},
+  year      = {2015}  
 }
 ```
 
