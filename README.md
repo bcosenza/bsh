@@ -7,7 +7,7 @@ Furthermore, we demonstrate how both the innate parallelism and the compact coef
 
 - Project's web page: http://bcosenza.github.io/bsh
 - Subversion:         https://github.com/bcosenza/bsh
-- Author's home:      http://www.biagiocosenza.com http://www.tu-berlin.de/?id=cosenza
+- Author's home:      http://www.cosenza.eu http://www.tu-berlin.de/?id=cosenza
 
 If you use this code for research purpose, please cite the paper:
 
