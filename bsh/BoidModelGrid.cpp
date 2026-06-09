@@ -1,10 +1,12 @@
 #include "stdafx.h"
 #include "boidModel.h"
 
-BoidModelGrid_2D::BoidModelGrid_2D(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP) : BoidModel(clHlpr)
+BoidModelGrid::BoidModelGrid(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP) : BoidModel(clHlpr)
 {
+	log("start setup - Boid Model Grid");
+
 	simTimeDisc = std::vector<const char*>(8);
-	simTimeDisc[0] = "Boid Model Grid 2D";
+	simTimeDisc[0] = "Boid Model Grid";
 	simTimeDisc[1] = "OpenCL Simulation Times:";
 	simTimeDisc[2] = "";
 	simTimeDisc[3] = "";
@@ -21,64 +23,55 @@ BoidModelGrid_2D::BoidModelGrid_2D(CLHelper* clHlpr, std::vector<Vec4> pos, std:
 
 	num = simParams.numBodies;
 
-	Y_AxisFixed = CELL_SIZE_Y / 4;
-
-	for (int i = 0; i < pos.size(); i++){
-		pos[i].y = Y_AxisFixed;
-		vel[i].y = 0.0f;
-	}
-
 	createBuffer(pos, vel);
 	loadData(vel);
 
-	programBoid    = loadProgram(kernel_path + "BoidModelGrid_2D_kernel_v2.cl");
+	programBoid    = loadProgram(kernel_path + "boidModelGrid_kernel_v3.cl");
 	programBitonic = loadProgram(kernel_path + "bitonic_sort.cl");
 
 	loadKernel();
 	log("setup complete - simulation is runable");
 }
 
-BoidModelGrid_2D::~BoidModelGrid_2D(){
+BoidModelGrid::~BoidModelGrid(){
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	glDeleteBuffers(1, pos_vbo);
-
 	glBindVertexArray(0);
 	glDeleteVertexArrays(1, pos_vao);
 
 	delete shader;
 }
 
-void BoidModelGrid_2D::render(){
+void BoidModelGrid::render(){
 	shader->bind();
 	glBindVertexArray(getPosVAO());
-	glDrawArrays(GL_POINTS, 0, num);
+	glDrawArrays(GL_POINTS, 0, num);	//draw boids as points
 	glBindVertexArray(0);
 	shader->unbind();
 }
 
-Shader* BoidModelGrid_2D::getShader(){
+Shader* BoidModelGrid::getShader(){
 	return shader;
 }
 
-void BoidModelGrid_2D::simulate(float dt){
-	printf("run kernel\n");
+void BoidModelGrid::simulate(float dt){
 
 	cl_ulong startTime, endTime;
-	//this will update our system by calculating new velocity and updating the positions of our particles
+
 	//Make sure OpenGL is done using our VBOs
 	glFinish();
+
 	// map OpenGL buffer object for writing from OpenCL
 	//this passes in the vector of VBO buffer objects (position and color)
 	err = queue.enqueueAcquireGLObjects(&cl_pos_vbos, NULL, &event);
 	err = queue.enqueueAcquireGLObjects(&cl_vel_vbos, NULL, &event);
-	//printf("acquire: %s\n", oclErrorString(err));
 	queue.finish();
 
 	//Get grid hash value for every boid
 	try
 	{
-		err = kernel_getGridHash.setArg(0, cl_pos_vbos[0]); //position vbo
+		err = kernel_getGridHash.setArg(0, cl_pos_vbos[0]); 
 		err = kernel_getGridHash.setArg(1, cl_gridHash_unsorted);
 		err = kernel_getGridHash.setArg(2, cl_gridIndex_unsorted);
 		err = kernel_getGridHash.setArg(3, cl_simParams);
@@ -89,8 +82,9 @@ void BoidModelGrid_2D::simulate(float dt){
 
 	//create gridHash
 	err = queue.enqueueNDRangeKernel(kernel_getGridHash, cl::NullRange, cl::NDRange(num), cl::NullRange, NULL, &event);
-
 	queue.finish();
+
+	//get time for outputs
 	event.wait();
 	event.getProfilingInfo<cl_ulong>(CL_PROFILING_COMMAND_START, &startTime);
 	event.getProfilingInfo<cl_ulong>(CL_PROFILING_COMMAND_END, &endTime);
@@ -128,10 +122,15 @@ void BoidModelGrid_2D::simulate(float dt){
 	err = queue.enqueueNDRangeKernel(kernel_memSet, cl::NullRange, cl::NDRange(simParams.numCells), cl::NullRange, NULL, &event);
 	queue.finish();
 
-	//sort gridHash
+
+	//sort gridHash with bitonic sort
 	bitonicSort(cl_gridHash_sorted, cl_gridIndex_sorted, cl_gridHash_unsorted, cl_gridIndex_unsorted, 1, simParams.numBodies, 0);
 	queue.finish();
 
+
+
+
+	//find the grid edges and reorder according to the previous sorting
 	try
 	{
 		err = kernel_findGridEdgeAndReorder.setArg(0, cl_gridStartIndex);
@@ -142,7 +141,7 @@ void BoidModelGrid_2D::simulate(float dt){
 		err = kernel_findGridEdgeAndReorder.setArg(5, cl_gridIndex_sorted);
 		err = kernel_findGridEdgeAndReorder.setArg(6, cl_pos_vbos[0]);
 		err = kernel_findGridEdgeAndReorder.setArg(7, cl_vel_vbos[0]);
-		err = kernel_findGridEdgeAndReorder.setArg(8, cl::__local(sizeof(cl_uint)*(LOCAL_PREF + 1)));
+		err = kernel_findGridEdgeAndReorder.setArg(8, cl::Local(sizeof(cl_uint)*(LOCAL_PREF + 1))); //local size needs to be one bigger because of border case
 		err = kernel_findGridEdgeAndReorder.setArg(9, num);
 	}
 	catch (cl::Error er) {
@@ -150,7 +149,7 @@ void BoidModelGrid_2D::simulate(float dt){
 	}
 
 	err = queue.enqueueNDRangeKernel(kernel_findGridEdgeAndReorder, cl::NullRange, cl::NDRange(num), cl::NDRange(LOCAL_PREF), NULL, &event);
-
+	queue.finish();
 	/*
 	unsigned int F[8000];
 	queue.enqueueReadBuffer(cl_gridStartIndex, CL_TRUE, 0, (size_t)(8000 * sizeof(unsigned int)), &F);
@@ -159,12 +158,15 @@ void BoidModelGrid_2D::simulate(float dt){
 	unsigned int G[8000];
 	queue.enqueueReadBuffer(cl_gridEndIndex, CL_TRUE, 0, (size_t)(8000 * sizeof(unsigned int)), &G);
 	queue.finish();*/
-	queue.finish();
+	
+	//get time for kernel_findGridEdgeAndReorder
 	event.wait();
 	event.getProfilingInfo<cl_ulong>(CL_PROFILING_COMMAND_START, &startTime);
 	event.getProfilingInfo<cl_ulong>(CL_PROFILING_COMMAND_END, &endTime);
 	times[2] = (endTime - startTime) / 1000000;
 
+
+	//do the simulation dance
 	try
 	{
 		err = kernel_simulate.setArg(0, cl_pos_out);
@@ -173,8 +175,8 @@ void BoidModelGrid_2D::simulate(float dt){
 		err = kernel_simulate.setArg(3, cl_vel_vbos[0]);
 		err = kernel_simulate.setArg(4, cl_gridStartIndex);
 		err = kernel_simulate.setArg(5, cl_gridEndIndex);
-		err = kernel_simulate.setArg(6, cl::__local(sizeof(cl_float4)*(LOCAL_SIZE_VEC4)));
-		err = kernel_simulate.setArg(7, cl::__local(sizeof(cl_float4)*(LOCAL_SIZE_VEC4)));
+		err = kernel_simulate.setArg(6, cl::Local(sizeof(cl_float4)*(LOCAL_SIZE_VEC4)));
+		err = kernel_simulate.setArg(7, cl::Local(sizeof(cl_float4)*(LOCAL_SIZE_VEC4)));
 		err = kernel_simulate.setArg(8, cl_simParams);
 		err = kernel_simulate.setArg(9, cl_range);
 		err = kernel_simulate.setArg(10, dt);
@@ -183,18 +185,21 @@ void BoidModelGrid_2D::simulate(float dt){
 		log("ERROR: " + std::string(er.what()) + clHelper->oclErrorString(er.err()));
 	}
 
-	queue.finish();
-
 
 	/*
 	unsigned int D[12500];
 	queue.enqueueReadBuffer(cl_gridEndIndex, CL_TRUE, 0, (size_t)12500 * sizeof(unsigned int), &D);
 	queue.finish();*/
+	
+	//if kernel v1 or v2 is used switch local and global worksize to following values
+	//int localWorkSize = LOCAL_PREF;
+	//int globalWorkSize = simParams.numCells * LOCAL_PREF;
 
 	int localWorkSize = LOCAL_PREF;
-	int globalWorkSize = LOCAL_PREF * (simParams.numCells);
+	int globalWorkSize = simParams.numBodies;
 	err = queue.enqueueNDRangeKernel(kernel_simulate, cl::NullRange, cl::NDRange(globalWorkSize), cl::NDRange(localWorkSize), NULL, &eventSim);
 
+	//get times for the simulation
 	eventSim.wait();
 	eventSim.getProfilingInfo<cl_ulong>(CL_PROFILING_COMMAND_START, &startTime);
 	eventSim.getProfilingInfo<cl_ulong>(CL_PROFILING_COMMAND_END, &endTime);
@@ -204,37 +209,36 @@ void BoidModelGrid_2D::simulate(float dt){
 	unsigned int A[8000];
 	queue.enqueueReadBuffer(cl_range, CL_TRUE, 0, (size_t)(8000 * sizeof(unsigned int)), &A);
 	queue.finish();
-
+	
 	std::vector<Vec4> C(NUM_BOIDS);
 	queue.enqueueReadBuffer(cl_velocities_out, CL_TRUE, 0, (size_t)num * sizeof(Vec4), C.data());
 	queue.finish();*/
-	//printf("%d %d %d\n", C[0], C[512], C[1023]);
+
+
 	//Release the VBOs so OpenGL can play with them
 	err = queue.enqueueReleaseGLObjects(&cl_pos_vbos, NULL, &event);
 	err = queue.enqueueReleaseGLObjects(&cl_vel_vbos, NULL, &event);
-	//printf("release gl: %s\n", oclErrorString(err));
-
 }
 
-GLuint BoidModelGrid_2D::getPosVBO(){
+GLuint BoidModelGrid::getPosVBO(){
 	return pos_vbo[0];
 }
 
-GLuint BoidModelGrid_2D::getVelVBO(){
-	return pos_vbo[0];
+GLuint BoidModelGrid::getVelVBO(){
+	return vel_vbo[0];
 }
 
-GLuint BoidModelGrid_2D::getPosVAO(){
+GLuint BoidModelGrid::getPosVAO(){
 	return pos_vao[0];
 }
 
-int BoidModelGrid_2D::getNumBoid(){
+int BoidModelGrid::getNumBoid(){
 	return num;
 }
 
 //Private Methods
 
-cl::Program BoidModelGrid_2D::loadProgram(const std::string &filename){
+cl::Program BoidModelGrid::loadProgram(const std::string &filename){
 	log("load program");
 	std::string kernelSource;
 
@@ -260,8 +264,7 @@ cl::Program BoidModelGrid_2D::loadProgram(const std::string &filename){
 
 	try
 	{
-		cl::Program::Sources source(1,
-			std::make_pair(kernelSource.c_str(), pl));
+		cl::Program::Sources source = {kernelSource};
 		program = cl::Program(context, source);
 	}
 	catch (cl::Error er)
@@ -284,7 +287,7 @@ cl::Program BoidModelGrid_2D::loadProgram(const std::string &filename){
 	return program;
 }
 
-void BoidModelGrid_2D::loadKernel(){
+void BoidModelGrid::loadKernel(){
 	log("loading kernels");
 	try{
 		kernel_getGridHash = cl::Kernel(programBoid, "getGridHash", &err);
@@ -302,7 +305,7 @@ void BoidModelGrid_2D::loadKernel(){
 
 }
 
-void BoidModelGrid_2D::createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel){
+void BoidModelGrid::createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel){
 	log("Create buffer for usage");
 
 	size_t array_size_fp4 = num * sizeof(Vec4);
@@ -311,11 +314,13 @@ void BoidModelGrid_2D::createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel
 
 	createVboBindShader(pos, vel);
 	// create OpenCL buffer from GL VBO
-	cl_pos_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, pos_vbo[0], &err));
-	cl_vel_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, vel_vbo[0], &err));
-
+	
+	
 	//create the OpenCL only arrays
 	try{
+		cl_pos_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, pos_vbo[0], &err));
+		cl_vel_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, vel_vbo[0], &err));
+
 		cl_pos_out = cl::Buffer(context, CL_MEM_READ_WRITE, array_size_fp4, NULL, &err);
 		cl_velocities_out = cl::Buffer(context, CL_MEM_READ_WRITE, array_size_fp4, NULL, &err);
 		cl_gridHash_unsorted = cl::Buffer(context, CL_MEM_READ_WRITE, array_size_simple, NULL, &err);
@@ -332,7 +337,7 @@ void BoidModelGrid_2D::createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel
 	}
 }
 
-void BoidModelGrid_2D::createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel){
+void BoidModelGrid::createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel){
 	std::vector<Vec4> newDataColor(num);
 
 	for (int i = 0; i < num; i++){
@@ -342,6 +347,7 @@ void BoidModelGrid_2D::createVboBindShader(std::vector<Vec4> pos, std::vector<Ve
 	GLuint id[1];
 	size_t array_size = num * sizeof(Vec4);
 
+	//create shader
 	shader = new Shader("boidTri.v.glsl", "boidTri.f.glsl", "boidTri.g.glsl");
 	GLint vertLoc = glGetAttribLocation(shader->id(), "coord3d");
 	GLint colorLoc = glGetAttribLocation(shader->id(), "color");
@@ -377,8 +383,8 @@ void BoidModelGrid_2D::createVboBindShader(std::vector<Vec4> pos, std::vector<Ve
 	log("GL VBO Buffer created");
 }
 
-void BoidModelGrid_2D::loadData(std::vector<Vec4> vel){
-	num = (int)vel.size();
+void BoidModelGrid::loadData(std::vector<Vec4> vel){
+	num = (int)vel.size(); 
 	size_t array_size_fp4 = num * sizeof(Vec4);
 
 	err = queue.enqueueWriteBuffer(cl_velocities_out, CL_TRUE, 0, array_size_fp4, &vel[0], NULL, &event);
@@ -386,7 +392,7 @@ void BoidModelGrid_2D::loadData(std::vector<Vec4> vel){
 	queue.finish();
 }
 
-void BoidModelGrid_2D::bitonicSort(
+void BoidModelGrid::bitonicSort(
 	cl::Buffer d_DstKey,
 	cl::Buffer d_DstVal,
 	cl::Buffer d_SrcKey,
@@ -516,7 +522,7 @@ void BoidModelGrid_2D::bitonicSort(
 	times[1] = (long)GetTickCount64() - timeNow;
 }
 
-cl_uint BoidModelGrid_2D::factorRadix2(cl_uint& log2L, cl_uint L){
+cl_uint BoidModelGrid::factorRadix2(cl_uint& log2L, cl_uint L){
 	if (!L){
 		log2L = 0;
 		return 0;
@@ -527,19 +533,19 @@ cl_uint BoidModelGrid_2D::factorRadix2(cl_uint& log2L, cl_uint L){
 	}
 }
 
-long BoidModelGrid_2D::getSimulationTime(){
+long BoidModelGrid::getSimulationTime(){
 	return times[4];
 }
 
-void BoidModelGrid_2D::bindShader(){
+void BoidModelGrid::bindShader(){
 	shader->bind();
 }
 
-void BoidModelGrid_2D::unbindShader(){
+void BoidModelGrid::unbindShader(){
 	shader->unbind();
 }
 
-std::vector<const char*> BoidModelGrid_2D::getSimTimeDescriptions(){
+std::vector<const char*> BoidModelGrid::getSimTimeDescriptions(){
 	std::stringstream strstream;
 
 	strstream.str(std::string());
@@ -561,15 +567,16 @@ std::vector<const char*> BoidModelGrid_2D::getSimTimeDescriptions(){
 	strstream << "Simulation time: " << times[3] << "ms";
 	stringSimTime = strstream.str();
 	simTimeDisc[7] = stringSimTime.c_str();
-
+	
 	return simTimeDisc;
 }
 
-void BoidModelGrid_2D::getFollowedBoid(unsigned int* boidIndex, Vec4* pos, Vec4* vel){
-	size_t size = sizeof(unsigned int)* num;
+void BoidModelGrid::getFollowedBoid(unsigned int* boidIndex, Vec4* pos, Vec4* vel){
+
+	size_t size = sizeof(unsigned int) * num;
 	std::vector<unsigned int> sortedHash(num);
 	queue.enqueueReadBuffer(cl_gridIndex_sorted, CL_TRUE, 0, size, sortedHash.data());
-	queue.finish();
+	queue.finish(); 
 
 	for (int i = 0; i < num; i++){
 		if (sortedHash[i] == *boidIndex){
@@ -583,10 +590,10 @@ void BoidModelGrid_2D::getFollowedBoid(unsigned int* boidIndex, Vec4* pos, Vec4*
 	Vec4 v;
 	GLuint vbo = getVelVBO();
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);
-	glGetBufferSubData(GL_ARRAY_BUFFER, sizeof(Vec4)* *boidIndex, sizeof(Vec4), &v);
+	glGetBufferSubData(GL_ARRAY_BUFFER, sizeof(Vec4) * *boidIndex, sizeof(Vec4), &v);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-	(*vel).set(v.x, v.y - 10.f, v.z, 0.0);
+	(*vel).set(v.x, v.y, v.z, 0.0);
 
 	Vec4 p;
 	vbo = getPosVBO();

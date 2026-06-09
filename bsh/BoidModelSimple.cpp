@@ -190,8 +190,7 @@ void BoidModelSimple::loadProgram(const std::string &filename){
 
 	try
 	{
-		cl::Program::Sources source(1,
-			std::make_pair(kernelSource.c_str(), pl));
+		cl::Program::Sources source = {kernelSource};
 		program = cl::Program(context, source);
 	}
 	catch (cl::Error er) {

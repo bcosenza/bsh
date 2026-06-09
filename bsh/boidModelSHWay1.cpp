@@ -1,10 +1,10 @@
 #include "stdafx.h"
 #include "boidModel.h"
 
-BoidModelSHCombined::BoidModelSHCombined(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, std::vector<Vec4> color, simParams_t* simP, std::vector<Vec4> cor, std::vector<unsigned int> start, std::vector<unsigned int> end, std::vector<Vec4> posObst) : BoidModel(clHlpr)
+BoidModelSHWay1::BoidModelSHWay1(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, std::vector<Vec4> color, simParams_t* simP) : BoidModel(clHlpr)
 {
 	simTimeDisc = std::vector<const char*>(10);
-	simTimeDisc[0] = "SH obstacle avoidance";
+	simTimeDisc[0] = "Boid Model SH way following";
 	simTimeDisc[1] = "OpenCL Simulation Times:";
 	simTimeDisc[2] = "";
 	simTimeDisc[3] = "";
@@ -26,17 +26,14 @@ BoidModelSHCombined::BoidModelSHCombined(CLHelper* clHlpr, std::vector<Vec4> pos
 	createBuffer(pos, vel, goal, color);
 	loadData(goal);
 
-	programBoid    = loadProgram(kernel_path + "BoidModelSHCombined_kernel_v1.cl");
+	programBoid    = loadProgram(kernel_path + "BoidModelSHWay1_kernel_v1.cl");
 	programBitonic = loadProgram(kernel_path + "bitonic_sort.cl");
 
 	loadKernel();
-
-	createAndLoadObstacleSH(cor, start, end, posObst);
-
 	log("setup complete - simulation is runable");
 }
 
-BoidModelSHCombined::~BoidModelSHCombined(){
+BoidModelSHWay1::~BoidModelSHWay1(){
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	glDeleteBuffers(1, pos_vbo);
@@ -47,7 +44,7 @@ BoidModelSHCombined::~BoidModelSHCombined(){
 	delete shader;
 }
 
-void BoidModelSHCombined::render(){
+void BoidModelSHWay1::render(){
 	shader->bind();
 	glBindVertexArray(getPosVAO());
 	glDrawArrays(GL_POINTS, 0, num);
@@ -55,11 +52,11 @@ void BoidModelSHCombined::render(){
 	shader->unbind();
 }
 
-Shader* BoidModelSHCombined::getShader(){
+Shader* BoidModelSHWay1::getShader(){
 	return shader;
 }
 
-void BoidModelSHCombined::simulate(float dt){
+void BoidModelSHWay1::simulate(float dt){
 	counter = !counter;
 
 	cl_ulong startTime, endTime;
@@ -169,7 +166,7 @@ void BoidModelSHCombined::simulate(float dt){
 		err = kernel_findGridEdgeAndReorder.setArg(1, cl_gridEndIndex);
 		err = kernel_findGridEdgeAndReorder.setArg(4, cl_gridHash_sorted);
 		err = kernel_findGridEdgeAndReorder.setArg(5, cl_gridIndex_sorted);
-		err = kernel_findGridEdgeAndReorder.setArg(12, cl::__local(sizeof(cl_uint)*(LOCAL_PREF + 1)));
+		err = kernel_findGridEdgeAndReorder.setArg(12, cl::Local(sizeof(cl_uint)*(LOCAL_PREF + 1)));
 		err = kernel_findGridEdgeAndReorder.setArg(13, num);
 	}
 	catch (cl::Error er) {
@@ -197,6 +194,14 @@ void BoidModelSHCombined::simulate(float dt){
 		err = kernel_evalSH.setArg(4, cl_coef0X);
 		err = kernel_evalSH.setArg(5, cl_coef0Y);
 		err = kernel_evalSH.setArg(6, cl_coef0Z);
+		err = kernel_evalSH.setArg(7, cl::Local(sizeof(cl_float)*(LOCAL_PREF)));
+		err = kernel_evalSH.setArg(8, cl::Local(sizeof(cl_float)*(LOCAL_PREF)));
+		err = kernel_evalSH.setArg(9, cl::Local(sizeof(cl_float)*(LOCAL_PREF)));
+		err = kernel_evalSH.setArg(10, cl::Local(sizeof(cl_float8)*(LOCAL_PREF)));
+		err = kernel_evalSH.setArg(11, cl::Local(sizeof(cl_float8)*(LOCAL_PREF)));
+		err = kernel_evalSH.setArg(12, cl::Local(sizeof(cl_float8)*(LOCAL_PREF)));
+		err = kernel_evalSH.setArg(13, cl_gridStartIndex);
+		err = kernel_evalSH.setArg(14, cl_gridEndIndex);
 	}
 	catch (cl::Error er){
 		log("ERROR: " + std::string(er.what()) + clHelper->oclErrorString(er.err()));
@@ -204,8 +209,9 @@ void BoidModelSHCombined::simulate(float dt){
 
 
 
+
 	int localWorkSize = LOCAL_PREF;
-	int globalWorkSize = simParams.numBodies;
+	int globalWorkSize = simParams.numCells * LOCAL_PREF;
 	err = queue.enqueueNDRangeKernel(kernel_evalSH, cl::NullRange, cl::NDRange(globalWorkSize), cl::NDRange(localWorkSize), NULL, &event);
 
 	event.wait();
@@ -213,9 +219,17 @@ void BoidModelSHCombined::simulate(float dt){
 	event.getProfilingInfo<cl_ulong>(CL_PROFILING_COMMAND_END, &endTime);
 	times[4] = (endTime - startTime) / 1000000;
 
-	//		std::vector<Vec4> C(2 * simParams.numCells);
-	//		queue.enqueueReadBuffer(cl_shEval, CL_TRUE, 0, (size_t)2 * simParams.numCells * sizeof(Vec4), C.data());
-	//		queue.finish(); 
+	std::vector<Vec4> C(2 * simParams.numCells);
+	queue.enqueueReadBuffer(cl_shEvalX, CL_TRUE, 0, (size_t)2 * simParams.numCells * sizeof(Vec4), C.data());
+	queue.finish();
+
+	std::vector<unsigned int> E(simParams.numCells);
+	queue.enqueueReadBuffer(cl_gridStartIndex, CL_TRUE, 0, (size_t)(simParams.numCells * sizeof(unsigned int)), E.data());
+	queue.finish();
+
+	std::vector<unsigned int> F(simParams.numCells);
+	queue.enqueueReadBuffer(cl_gridEndIndex, CL_TRUE, 0, (size_t)(simParams.numCells * sizeof(unsigned int)), F.data());
+	queue.finish();
 
 	try
 	{
@@ -243,6 +257,7 @@ void BoidModelSHCombined::simulate(float dt){
 	catch (cl::Error er){
 		log("ERROR: " + std::string(er.what()) + clHelper->oclErrorString(er.err()));
 	}
+
 	queue.finish();
 
 
@@ -255,15 +270,16 @@ void BoidModelSHCombined::simulate(float dt){
 
 	queue.finish();
 
+	//globalWorkSize = LOCAL_PREF * (simParams.numCells);
 	localWorkSize = LOCAL_PREF;
 	globalWorkSize = simParams.numBodies;
+
 	err = queue.enqueueNDRangeKernel(kernel_simulate, cl::NullRange, cl::NDRange(globalWorkSize), cl::NDRange(localWorkSize), NULL, &eventSim);
 
 	eventSim.wait();
 	eventSim.getProfilingInfo<cl_ulong>(CL_PROFILING_COMMAND_START, &startTime);
 	eventSim.getProfilingInfo<cl_ulong>(CL_PROFILING_COMMAND_END, &endTime);
 	times[3] = (endTime - startTime) / 1000000;
-	unsigned int numObst = 126;
 
 	try
 	{
@@ -286,25 +302,16 @@ void BoidModelSHCombined::simulate(float dt){
 		err = kernel_useSH.setArg(5, cl_shEvalY);
 		err = kernel_useSH.setArg(6, cl_shEvalZ);
 		err = kernel_useSH.setArg(7, cl_simParams);
-		err = kernel_useSH.setArg(10, cl::__local(sizeof(cl_float8)*(LOCAL_PREF)));
-		err = kernel_useSH.setArg(11, cl::__local(sizeof(cl_float8)*(LOCAL_PREF)));
-		err = kernel_useSH.setArg(12, cl::__local(sizeof(cl_float8)*(LOCAL_PREF)));
+		err = kernel_useSH.setArg(10, cl::Local(sizeof(cl_float8)*(LOCAL_PREF)));
+		err = kernel_useSH.setArg(11, cl::Local(sizeof(cl_float8)*(LOCAL_PREF)));
+		err = kernel_useSH.setArg(12, cl::Local(sizeof(cl_float8)*(LOCAL_PREF)));
 		err = kernel_useSH.setArg(13, cl_coef0X);
 		err = kernel_useSH.setArg(14, cl_coef0Y);
 		err = kernel_useSH.setArg(15, cl_coef0Z);
-		err = kernel_useSH.setArg(16, cl::__local(sizeof(cl_float)*(LOCAL_PREF)));
-		err = kernel_useSH.setArg(17, cl::__local(sizeof(cl_float)*(LOCAL_PREF)));
-		err = kernel_useSH.setArg(18, cl::__local(sizeof(cl_float)*(LOCAL_PREF)));
-		err = kernel_useSH.setArg(19, cl_shEvalOX);
-		err = kernel_useSH.setArg(20, cl_shEvalOY);
-		err = kernel_useSH.setArg(21, cl_shEvalOZ);
-		err = kernel_useSH.setArg(22, cl_coef0OX);
-		err = kernel_useSH.setArg(23, cl_coef0OY);
-		err = kernel_useSH.setArg(24, cl_coef0OZ);
-		err = kernel_useSH.setArg(25, cl_posObst);
-		err = kernel_useSH.setArg(26, cl::__local(sizeof(cl_float4)*(LOCAL_PREF)));
-		err = kernel_useSH.setArg(27, numObst);
-		err = kernel_useSH.setArg(28, dt);
+		err = kernel_useSH.setArg(16, cl::Local(sizeof(cl_float)*(LOCAL_PREF)));
+		err = kernel_useSH.setArg(17, cl::Local(sizeof(cl_float)*(LOCAL_PREF)));
+		err = kernel_useSH.setArg(18, cl::Local(sizeof(cl_float)*(LOCAL_PREF)));
+		err = kernel_useSH.setArg(19, dt);
 	}
 	catch (cl::Error er){
 		log("ERROR: " + std::string(er.what()) + clHelper->oclErrorString(er.err()));
@@ -339,34 +346,34 @@ void BoidModelSHCombined::simulate(float dt){
 	err = queue.enqueueReleaseGLObjects(&cl_color_vbos_out, NULL, &event);
 }
 
-GLuint BoidModelSHCombined::getPosVBO(){
+GLuint BoidModelSHWay1::getPosVBO(){
 	if (counter)
 		return pos_vbo[0];
 	else
 		return pos_vbo_out[0];
 }
 
-GLuint BoidModelSHCombined::getVelVBO(){
+GLuint BoidModelSHWay1::getVelVBO(){
 	if (counter)
 		return vel_vbo[0];
 	else
 		return vel_vbo_out[0];
 }
 
-GLuint BoidModelSHCombined::getPosVAO(){
+GLuint BoidModelSHWay1::getPosVAO(){
 	if (counter)
 		return pos_vao[0];
 	else
 		return pos_vao_out[0];
 }
 
-int BoidModelSHCombined::getNumBoid(){
+int BoidModelSHWay1::getNumBoid(){
 	return num;
 }
 
 //Private Methods
 
-cl::Program BoidModelSHCombined::loadProgram(const std::string &filename){
+cl::Program BoidModelSHWay1::loadProgram(const std::string &filename){
 	log("load program");
 	std::string kernelSource;
 
@@ -392,8 +399,7 @@ cl::Program BoidModelSHCombined::loadProgram(const std::string &filename){
 
 	try
 	{
-		cl::Program::Sources source(1,
-			std::make_pair(kernelSource.c_str(), pl));
+		cl::Program::Sources source = {kernelSource};
 		program = cl::Program(context, source);
 	}
 	catch (cl::Error er)
@@ -416,7 +422,7 @@ cl::Program BoidModelSHCombined::loadProgram(const std::string &filename){
 	return program;
 }
 
-void BoidModelSHCombined::loadKernel(){
+void BoidModelSHWay1::loadKernel(){
 	log("loading kernels");
 	try{
 		kernel_getGridHash = cl::Kernel(programBoid, "getGridHash", &err);
@@ -428,10 +434,13 @@ void BoidModelSHCombined::loadKernel(){
 		kernel_bitonicMergeLocal = cl::Kernel(programBitonic, "bitonicMergeLocal", &err);
 		kernel_memSet = cl::Kernel(programBoid, "memSet", &err);
 		kernel_evalSH = cl::Kernel(programBoid, "evalSH", &err);
-		kernel_obstacle = cl::Kernel(programBoid, "obstacleSH", &err);
 
 #if USE_SH_FOR_PATH
-		kernel_useSH = cl::Kernel(programBoid, "useSH", &err);
+	#if USE_LOOKAHEAD
+			kernel_useSH = cl::Kernel(programBoid, "useSHLookahead", &err);
+	#else
+			kernel_useSH = cl::Kernel(programBoid, "useSH", &err);
+	#endif
 #else
 		kernel_useSH = cl::Kernel(programBoid, "dontUseSH", &err);
 #endif
@@ -442,15 +451,15 @@ void BoidModelSHCombined::loadKernel(){
 
 }
 
-void BoidModelSHCombined::createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, std::vector<Vec4> color){
+void BoidModelSHWay1::createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, std::vector<Vec4> color){
 	log("Create buffer for usage");
 
 	size_t array_size_fp4 = num * sizeof(Vec4);
 	size_t array_size_simple = num * sizeof(unsigned int);
 	size_t array_size_edges = simParams.numCells * sizeof(unsigned int);
 	size_t array_size_fp4_cells = simParams.numCells * sizeof(Vec4);
-	size_t array_size_fp8 = 2 * num * sizeof(Vec4);
-	size_t array_size_fp = num * sizeof(float);
+	size_t array_size_fp8 = 2 * simParams.numCells * sizeof(Vec4);
+	size_t array_size_fp = simParams.numCells * sizeof(float);
 
 	createVboBindShader(pos, vel, color);
 	// create OpenCL buffer from GL VBO
@@ -488,70 +497,7 @@ void BoidModelSHCombined::createBuffer(std::vector<Vec4> pos, std::vector<Vec4> 
 	}
 }
 
-void BoidModelSHCombined::createAndLoadObstacleSH(std::vector<Vec4> cor, std::vector<unsigned int> start, std::vector<unsigned int> end, std::vector<Vec4> posObst){
-	size_t array_size_fp8 = 2 * posObst.size() * sizeof(Vec4);
-	size_t array_size_fp = posObst.size() * sizeof(float);
-	size_t array_size_index = start.size() * sizeof(unsigned int);
-	size_t array_size_cor = cor.size() * sizeof(Vec4);
-	size_t array_size_pos = posObst.size() * sizeof(Vec4);
-
-	try
-	{
-		cl_coef0OX = cl::Buffer(context, CL_MEM_READ_WRITE, array_size_fp, NULL, &err);
-		cl_coef0OY = cl::Buffer(context, CL_MEM_READ_WRITE, array_size_fp, NULL, &err);
-		cl_coef0OZ = cl::Buffer(context, CL_MEM_READ_WRITE, array_size_fp, NULL, &err);
-		cl_shEvalOX = cl::Buffer(context, CL_MEM_READ_WRITE, array_size_fp8, NULL, &err);
-		cl_shEvalOY = cl::Buffer(context, CL_MEM_READ_WRITE, array_size_fp8, NULL, &err);
-		cl_shEvalOZ = cl::Buffer(context, CL_MEM_READ_WRITE, array_size_fp8, NULL, &err);
-		cl_startCor = cl::Buffer(context, CL_MEM_READ_ONLY, array_size_index, NULL, &err);
-		cl_endCor = cl::Buffer(context, CL_MEM_READ_ONLY, array_size_index, NULL, &err);
-		cl_posObst = cl::Buffer(context, CL_MEM_READ_ONLY, array_size_pos, NULL, &err);
-		cl_cor = cl::Buffer(context, CL_MEM_READ_ONLY, array_size_cor, NULL, &err);
-	}
-	catch (cl::Error er) {
-		log("ERROR: " + std::string(er.what()) + clHelper->oclErrorString(er.err()));
-	}
-
-	err = queue.enqueueWriteBuffer(cl_startCor, CL_TRUE, 0, array_size_index, &start[0], NULL, &event);
-	err = queue.enqueueWriteBuffer(cl_endCor, CL_TRUE, 0, array_size_index, &end[0], NULL, &event);
-	err = queue.enqueueWriteBuffer(cl_posObst, CL_TRUE, 0, array_size_pos, &posObst[0], NULL, &event);
-	err = queue.enqueueWriteBuffer(cl_cor, CL_TRUE, 0, array_size_cor, &cor[0], NULL, &event);
-	queue.finish();
-
-	try
-	{
-		err = kernel_obstacle.setArg(0, cl_cor);
-		err = kernel_obstacle.setArg(1, cl_startCor);
-		err = kernel_obstacle.setArg(2, cl_endCor);
-		err = kernel_obstacle.setArg(3, cl_shEvalOX);
-		err = kernel_obstacle.setArg(4, cl_shEvalOY);
-		err = kernel_obstacle.setArg(5, cl_shEvalOZ);
-		err = kernel_obstacle.setArg(6, cl_coef0OX);
-		err = kernel_obstacle.setArg(7, cl_coef0OY);
-		err = kernel_obstacle.setArg(8, cl_coef0OZ);
-	}
-	catch (cl::Error er){
-		log("ERROR: " + std::string(er.what()) + clHelper->oclErrorString(er.err()));
-	}
-
-
-	int globalWorkSize = posObst.size();
-	err = queue.enqueueNDRangeKernel(kernel_obstacle, cl::NullRange, cl::NDRange(globalWorkSize), cl::NullRange, NULL, &event);
-	queue.finish();
-
-
-	std::vector<Vec4> X(126);
-	queue.enqueueReadBuffer(cl_posObst, CL_TRUE, 0, (size_t)126 * sizeof(Vec4), X.data());
-	queue.finish();
-
-	std::vector<Vec4> Y(2 * 126);
-	queue.enqueueReadBuffer(cl_shEvalOX, CL_TRUE, 0, (size_t)2 * 126 * sizeof(Vec4), Y.data());
-	queue.finish();
-
-
-}
-
-void BoidModelSHCombined::createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color){
+void BoidModelSHWay1::createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color){
 	std::vector<Vec4> newDataColor(num);
 
 	for (int i = 0; i < num; i++){
@@ -619,8 +565,7 @@ void BoidModelSHCombined::createVboBindShader(std::vector<Vec4> pos, std::vector
 
 	log("GL VBO Buffer created");
 }
-
-void BoidModelSHCombined::loadData(std::vector<Vec4> goal){
+void BoidModelSHWay1::loadData(std::vector<Vec4> goal){
 	num = (int)goal.size();
 	size_t array_size_fp4 = num * sizeof(Vec4);
 
@@ -629,7 +574,7 @@ void BoidModelSHCombined::loadData(std::vector<Vec4> goal){
 	queue.finish();
 }
 
-void BoidModelSHCombined::bitonicSort(
+void BoidModelSHWay1::bitonicSort(
 	cl::Buffer d_DstKey,
 	cl::Buffer d_DstVal,
 	cl::Buffer d_SrcKey,
@@ -758,7 +703,7 @@ void BoidModelSHCombined::bitonicSort(
 	times[1] = GetTickCount64() - timeNow;
 }
 
-cl_uint BoidModelSHCombined::factorRadix2(cl_uint& log2L, cl_uint L){
+cl_uint BoidModelSHWay1::factorRadix2(cl_uint& log2L, cl_uint L){
 	if (!L){
 		log2L = 0;
 		return 0;
@@ -769,7 +714,7 @@ cl_uint BoidModelSHCombined::factorRadix2(cl_uint& log2L, cl_uint L){
 	}
 }
 
-long BoidModelSHCombined::getSimulationTime(){
+long BoidModelSHWay1::getSimulationTime(){
 	cl_ulong startTime, endTime;
 	eventSim.wait();
 	eventSim.getProfilingInfo<cl_ulong>(CL_PROFILING_COMMAND_START, &startTime);
@@ -777,15 +722,15 @@ long BoidModelSHCombined::getSimulationTime(){
 	return (endTime - startTime) / 1000000;
 }
 
-void BoidModelSHCombined::bindShader(){
+void BoidModelSHWay1::bindShader(){
 	shader->bind();
 }
 
-void BoidModelSHCombined::unbindShader(){
+void BoidModelSHWay1::unbindShader(){
 	shader->unbind();
 }
 
-std::vector<const char*> BoidModelSHCombined::getSimTimeDescriptions(){
+std::vector<const char*> BoidModelSHWay1::getSimTimeDescriptions(){
 	std::stringstream strstream;
 
 	strstream.str(std::string());
@@ -821,7 +766,7 @@ std::vector<const char*> BoidModelSHCombined::getSimTimeDescriptions(){
 	return simTimeDisc;
 }
 
-void BoidModelSHCombined::getFollowedBoid(unsigned int* boidIndex, Vec4* pos, Vec4* vel){
+void BoidModelSHWay1::getFollowedBoid(unsigned int* boidIndex, Vec4* pos, Vec4* vel){
 	size_t size = sizeof(unsigned int)* num;
 	std::vector<unsigned int> sortedHash(num);
 	queue.enqueueReadBuffer(cl_gridIndex_sorted, CL_TRUE, 0, size, sortedHash.data());

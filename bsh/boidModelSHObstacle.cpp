@@ -1,7 +1,7 @@
 #include "stdafx.h"
 #include "boidModel.h"
 
-BoidModelSHObstacleTunnel::BoidModelSHObstacleTunnel(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, std::vector<Vec4> color, simParams_t* simP, std::vector<Vec4> cor, std::vector<unsigned int> start, std::vector<unsigned int> end, std::vector<Vec4> posObst) : BoidModel(clHlpr)
+BoidModelSHObstacle::BoidModelSHObstacle(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, simParams_t* simP, std::vector<Vec4> cor, std::vector<unsigned int> start, std::vector<unsigned int> end, std::vector<Vec4> posObst) : BoidModel(clHlpr)
 {
 	simTimeDisc = std::vector<const char*>(10);
 	simTimeDisc[0] = "SH obstacle avoidance";
@@ -23,10 +23,10 @@ BoidModelSHObstacleTunnel::BoidModelSHObstacleTunnel(CLHelper* clHlpr, std::vect
 
 	num = simParams.numBodies;
 
-	createBuffer(pos, vel, goal, color);
+	createBuffer(pos, vel, goal);
 	loadData(goal);
 
-	programBoid    = loadProgram(kernel_path + "BoidModelSHObstacleTunnel_kernel_v1.cl");
+	programBoid =    loadProgram(kernel_path + "BoidModelSHObstacle_kernel_v1.cl");
 	programBitonic = loadProgram(kernel_path + "bitonic_sort.cl");
 
 	loadKernel();
@@ -36,7 +36,7 @@ BoidModelSHObstacleTunnel::BoidModelSHObstacleTunnel(CLHelper* clHlpr, std::vect
 	log("setup complete - simulation is runable");
 }
 
-BoidModelSHObstacleTunnel::~BoidModelSHObstacleTunnel(){
+BoidModelSHObstacle::~BoidModelSHObstacle(){
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	glDeleteBuffers(1, pos_vbo);
@@ -47,7 +47,7 @@ BoidModelSHObstacleTunnel::~BoidModelSHObstacleTunnel(){
 	delete shader;
 }
 
-void BoidModelSHObstacleTunnel::render(){
+void BoidModelSHObstacle::render(){
 	shader->bind();
 	glBindVertexArray(getPosVAO());
 	glDrawArrays(GL_POINTS, 0, num);
@@ -55,11 +55,11 @@ void BoidModelSHObstacleTunnel::render(){
 	shader->unbind();
 }
 
-Shader* BoidModelSHObstacleTunnel::getShader(){
+Shader* BoidModelSHObstacle::getShader(){
 	return shader;
 }
 
-void BoidModelSHObstacleTunnel::simulate(float dt){
+void BoidModelSHObstacle::simulate(float dt){
 	counter = !counter;
 
 	cl_ulong startTime, endTime;
@@ -72,8 +72,6 @@ void BoidModelSHObstacleTunnel::simulate(float dt){
 	err = queue.enqueueAcquireGLObjects(&cl_pos_vbos_out, NULL, &event);
 	err = queue.enqueueAcquireGLObjects(&cl_vel_vbos, NULL, &event);
 	err = queue.enqueueAcquireGLObjects(&cl_vel_vbos_out, NULL, &event);
-	err = queue.enqueueAcquireGLObjects(&cl_color_vbos, NULL, &event);
-	err = queue.enqueueAcquireGLObjects(&cl_color_vbos_out, NULL, &event);
 	queue.finish();
 
 	//Get grid hash value for every boid
@@ -151,8 +149,6 @@ void BoidModelSHObstacleTunnel::simulate(float dt){
 			err = kernel_findGridEdgeAndReorder.setArg(7, cl_vel_vbos[0]);		//vel in unordered
 			err = kernel_findGridEdgeAndReorder.setArg(8, cl_goal_in);
 			err = kernel_findGridEdgeAndReorder.setArg(9, cl_goal_out);
-			err = kernel_findGridEdgeAndReorder.setArg(11, cl_color_vbos[0]);
-			err = kernel_findGridEdgeAndReorder.setArg(10, cl_color_vbos_out[0]);
 		}
 		else {
 			err = kernel_findGridEdgeAndReorder.setArg(6, cl_pos_vbos_out[0]);	//pos in
@@ -161,16 +157,14 @@ void BoidModelSHObstacleTunnel::simulate(float dt){
 			err = kernel_findGridEdgeAndReorder.setArg(3, cl_vel_vbos[0]);		//vel out
 			err = kernel_findGridEdgeAndReorder.setArg(9, cl_goal_in);
 			err = kernel_findGridEdgeAndReorder.setArg(8, cl_goal_out);
-			err = kernel_findGridEdgeAndReorder.setArg(10, cl_color_vbos[0]);
-			err = kernel_findGridEdgeAndReorder.setArg(11, cl_color_vbos_out[0]);
 		}
 
 		err = kernel_findGridEdgeAndReorder.setArg(0, cl_gridStartIndex);
 		err = kernel_findGridEdgeAndReorder.setArg(1, cl_gridEndIndex);
 		err = kernel_findGridEdgeAndReorder.setArg(4, cl_gridHash_sorted);
 		err = kernel_findGridEdgeAndReorder.setArg(5, cl_gridIndex_sorted);
-		err = kernel_findGridEdgeAndReorder.setArg(12, cl::__local(sizeof(cl_uint)*(LOCAL_PREF + 1)));
-		err = kernel_findGridEdgeAndReorder.setArg(13, num);
+		err = kernel_findGridEdgeAndReorder.setArg(10, cl::Local(sizeof(cl_uint)*(LOCAL_PREF + 1)));
+		err = kernel_findGridEdgeAndReorder.setArg(11, num);
 	}
 	catch (cl::Error er) {
 		log("ERROR: " + std::string(er.what()) + clHelper->oclErrorString(er.err()));
@@ -264,7 +258,7 @@ void BoidModelSHObstacleTunnel::simulate(float dt){
 	eventSim.getProfilingInfo<cl_ulong>(CL_PROFILING_COMMAND_START, &startTime);
 	eventSim.getProfilingInfo<cl_ulong>(CL_PROFILING_COMMAND_END, &endTime);
 	times[3] = (endTime - startTime) / 1000000;
-	unsigned int numObst = 208;
+	unsigned int numObst = 126;
 
 	try
 	{
@@ -287,15 +281,15 @@ void BoidModelSHObstacleTunnel::simulate(float dt){
 		err = kernel_useSH.setArg(5, cl_shEvalY);
 		err = kernel_useSH.setArg(6, cl_shEvalZ);
 		err = kernel_useSH.setArg(7, cl_simParams);
-		err = kernel_useSH.setArg(10, cl::__local(sizeof(cl_float8)*(LOCAL_PREF)));
-		err = kernel_useSH.setArg(11, cl::__local(sizeof(cl_float8)*(LOCAL_PREF)));
-		err = kernel_useSH.setArg(12, cl::__local(sizeof(cl_float8)*(LOCAL_PREF)));
+		err = kernel_useSH.setArg(10, cl::Local(sizeof(cl_float8)*(LOCAL_PREF)));
+		err = kernel_useSH.setArg(11, cl::Local(sizeof(cl_float8)*(LOCAL_PREF)));
+		err = kernel_useSH.setArg(12, cl::Local(sizeof(cl_float8)*(LOCAL_PREF)));
 		err = kernel_useSH.setArg(13, cl_coef0X);
 		err = kernel_useSH.setArg(14, cl_coef0Y);
 		err = kernel_useSH.setArg(15, cl_coef0Z);
-		err = kernel_useSH.setArg(16, cl::__local(sizeof(cl_float)*(LOCAL_PREF)));
-		err = kernel_useSH.setArg(17, cl::__local(sizeof(cl_float)*(LOCAL_PREF)));
-		err = kernel_useSH.setArg(18, cl::__local(sizeof(cl_float)*(LOCAL_PREF)));
+		err = kernel_useSH.setArg(16, cl::Local(sizeof(cl_float)*(LOCAL_PREF)));
+		err = kernel_useSH.setArg(17, cl::Local(sizeof(cl_float)*(LOCAL_PREF)));
+		err = kernel_useSH.setArg(18, cl::Local(sizeof(cl_float)*(LOCAL_PREF)));
 		err = kernel_useSH.setArg(19, cl_shEvalOX);
 		err = kernel_useSH.setArg(20, cl_shEvalOY);
 		err = kernel_useSH.setArg(21, cl_shEvalOZ);
@@ -303,16 +297,15 @@ void BoidModelSHObstacleTunnel::simulate(float dt){
 		err = kernel_useSH.setArg(23, cl_coef0OY);
 		err = kernel_useSH.setArg(24, cl_coef0OZ);
 		err = kernel_useSH.setArg(25, cl_posObst);
-		err = kernel_useSH.setArg(26, cl::__local(sizeof(cl_float4)*(LOCAL_PREF)));
-		err = kernel_useSH.setArg(27, numObst);
-		err = kernel_useSH.setArg(28, dt);
+		err = kernel_useSH.setArg(26, numObst);
+		err = kernel_useSH.setArg(27, dt);
 	}
 	catch (cl::Error er){
 		log("ERROR: " + std::string(er.what()) + clHelper->oclErrorString(er.err()));
 	}
 
 	localWorkSize = LOCAL_PREF;
-	globalWorkSize = simParams.numBodies;
+	globalWorkSize = LOCAL_PREF * (simParams.numCells);
 	err = queue.enqueueNDRangeKernel(kernel_useSH, cl::NullRange, cl::NDRange(globalWorkSize), cl::NDRange(localWorkSize), NULL, &event);
 	queue.finish();
 
@@ -336,38 +329,36 @@ void BoidModelSHObstacleTunnel::simulate(float dt){
 	err = queue.enqueueReleaseGLObjects(&cl_pos_vbos_out, NULL, &event);
 	err = queue.enqueueReleaseGLObjects(&cl_vel_vbos, NULL, &event);
 	err = queue.enqueueReleaseGLObjects(&cl_vel_vbos_out, NULL, &event);
-	err = queue.enqueueReleaseGLObjects(&cl_color_vbos, NULL, &event);
-	err = queue.enqueueReleaseGLObjects(&cl_color_vbos_out, NULL, &event);
 }
 
-GLuint BoidModelSHObstacleTunnel::getPosVBO(){
+GLuint BoidModelSHObstacle::getPosVBO(){
 	if (counter)
 		return pos_vbo[0];
 	else
 		return pos_vbo_out[0];
 }
 
-GLuint BoidModelSHObstacleTunnel::getVelVBO(){
+GLuint BoidModelSHObstacle::getVelVBO(){
 	if (counter)
 		return vel_vbo[0];
 	else
 		return vel_vbo_out[0];
 }
 
-GLuint BoidModelSHObstacleTunnel::getPosVAO(){
+GLuint BoidModelSHObstacle::getPosVAO(){
 	if (counter)
 		return pos_vao[0];
 	else
 		return pos_vao_out[0];
 }
 
-int BoidModelSHObstacleTunnel::getNumBoid(){
+int BoidModelSHObstacle::getNumBoid(){
 	return num;
 }
 
 //Private Methods
 
-cl::Program BoidModelSHObstacleTunnel::loadProgram(const std::string &filename){
+cl::Program BoidModelSHObstacle::loadProgram(const std::string &filename){
 	log("load program");
 	std::string kernelSource;
 
@@ -382,7 +373,7 @@ cl::Program BoidModelSHObstacleTunnel::loadProgram(const std::string &filename){
 	}
 	else
 	{
-		log("could not open " + std::string(filename));
+		log("could not open " + filename);
 		throw(errno);
 	}
 
@@ -393,8 +384,7 @@ cl::Program BoidModelSHObstacleTunnel::loadProgram(const std::string &filename){
 
 	try
 	{
-		cl::Program::Sources source(1,
-			std::make_pair(kernelSource.c_str(), pl));
+		cl::Program::Sources source = {kernelSource};
 		program = cl::Program(context, source);
 	}
 	catch (cl::Error er)
@@ -417,7 +407,7 @@ cl::Program BoidModelSHObstacleTunnel::loadProgram(const std::string &filename){
 	return program;
 }
 
-void BoidModelSHObstacleTunnel::loadKernel(){
+void BoidModelSHObstacle::loadKernel(){
 	log("loading kernels");
 	try{
 		kernel_getGridHash = cl::Kernel(programBoid, "getGridHash", &err);
@@ -443,7 +433,7 @@ void BoidModelSHObstacleTunnel::loadKernel(){
 
 }
 
-void BoidModelSHObstacleTunnel::createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, std::vector<Vec4> color){
+void BoidModelSHObstacle::createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal){
 	log("Create buffer for usage");
 
 	size_t array_size_fp4 = num * sizeof(Vec4);
@@ -453,16 +443,13 @@ void BoidModelSHObstacleTunnel::createBuffer(std::vector<Vec4> pos, std::vector<
 	size_t array_size_fp8 = 2 * num * sizeof(Vec4);
 	size_t array_size_fp = num * sizeof(float);
 
-	createVboBindShader(pos, vel, color);
+	createVboBindShader(pos, vel);
 	// create OpenCL buffer from GL VBO
 	cl_pos_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, pos_vbo[0], &err));
 	cl_pos_vbos_out.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, pos_vbo_out[0], &err));
 
 	cl_vel_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, vel_vbo[0], &err));
 	cl_vel_vbos_out.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, vel_vbo_out[0], &err));
-
-	cl_color_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, color_vbo[0], &err));
-	cl_color_vbos_out.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, color_vbo_out[0], &err));
 	//create the OpenCL only arrays
 	try
 	{
@@ -489,13 +476,13 @@ void BoidModelSHObstacleTunnel::createBuffer(std::vector<Vec4> pos, std::vector<
 	}
 }
 
-void BoidModelSHObstacleTunnel::createAndLoadObstacleSH(std::vector<Vec4> cor, std::vector<unsigned int> start, std::vector<unsigned int> end, std::vector<Vec4> posObst){
+void BoidModelSHObstacle::createAndLoadObstacleSH(std::vector<Vec4> cor, std::vector<unsigned int> start, std::vector<unsigned int> end, std::vector<Vec4> posObst){
 	size_t array_size_fp8 = 2 * posObst.size() * sizeof(Vec4);
 	size_t array_size_fp = posObst.size() * sizeof(float);
 	size_t array_size_index = start.size() * sizeof(unsigned int);
 	size_t array_size_cor = cor.size() * sizeof(Vec4);
 	size_t array_size_pos = posObst.size() * sizeof(Vec4);
-
+	
 	try
 	{
 		cl_coef0OX = cl::Buffer(context, CL_MEM_READ_WRITE, array_size_fp, NULL, &err);
@@ -540,19 +527,19 @@ void BoidModelSHObstacleTunnel::createAndLoadObstacleSH(std::vector<Vec4> cor, s
 	err = queue.enqueueNDRangeKernel(kernel_obstacle, cl::NullRange, cl::NDRange(globalWorkSize), cl::NullRange, NULL, &event);
 	queue.finish();
 
-
-	std::vector<Vec4> X(208);
-	queue.enqueueReadBuffer(cl_posObst, CL_TRUE, 0, (size_t)208 * sizeof(Vec4), X.data());
+	
+	std::vector<Vec4> X(126);
+	queue.enqueueReadBuffer(cl_posObst, CL_TRUE, 0, (size_t)126 * sizeof(Vec4), X.data());
 	queue.finish();
-
-	std::vector<Vec4> Y(2 * 208);
-	queue.enqueueReadBuffer(cl_shEvalOX, CL_TRUE, 0, (size_t)2 * 208 * sizeof(Vec4), Y.data());
+	
+	std::vector<Vec4> Y(2*126);
+	queue.enqueueReadBuffer(cl_shEvalOX, CL_TRUE, 0, (size_t)2*126 * sizeof(Vec4), Y.data());
 	queue.finish();
-
+	
 
 }
 
-void BoidModelSHObstacleTunnel::createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color){
+void BoidModelSHObstacle::createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel){
 	std::vector<Vec4> newDataColor(num);
 
 	for (int i = 0; i < num; i++){
@@ -585,7 +572,9 @@ void BoidModelSHObstacleTunnel::createVboBindShader(std::vector<Vec4> pos, std::
 	glVertexAttribPointer(velLoc, 4, GL_FLOAT, GL_FALSE, 0, 0); // Set up our velocity attributes pointer
 	glEnableVertexAttribArray(velLoc);
 
-	color_vbo[0] = clHelper->createVBO(&color[0], array_size, GL_ARRAY_BUFFER, GL_DYNAMIC_DRAW);
+	glGenBuffers(1, &id[0]);
+	glBindBuffer(GL_ARRAY_BUFFER, id[0]);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(Vec4)* num, &newDataColor[0], GL_STATIC_DRAW);
 
 	glVertexAttribPointer(colorLoc, 4, GL_FLOAT, GL_FALSE, 0, 0); // Set up our vertex attributes pointer  
 	glEnableVertexAttribArray(colorLoc);
@@ -610,7 +599,9 @@ void BoidModelSHObstacleTunnel::createVboBindShader(std::vector<Vec4> pos, std::
 	glVertexAttribPointer(velLoc, 4, GL_FLOAT, GL_FALSE, 0, 0); // Set up our velocity attributes pointer
 	glEnableVertexAttribArray(velLoc);
 
-	color_vbo_out[0] = clHelper->createVBO(&color[0], array_size, GL_ARRAY_BUFFER, GL_DYNAMIC_DRAW);
+	glGenBuffers(1, &id[0]);
+	glBindBuffer(GL_ARRAY_BUFFER, id[0]);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(Vec4)* num, &newDataColor[0], GL_STATIC_DRAW);
 
 	glVertexAttribPointer(colorLoc, 4, GL_FLOAT, GL_FALSE, 0, 0); // Set up our vertex attributes pointer  
 	glEnableVertexAttribArray(colorLoc);
@@ -621,7 +612,7 @@ void BoidModelSHObstacleTunnel::createVboBindShader(std::vector<Vec4> pos, std::
 	log("GL VBO Buffer created");
 }
 
-void BoidModelSHObstacleTunnel::loadData(std::vector<Vec4> goal){
+void BoidModelSHObstacle::loadData(std::vector<Vec4> goal){
 	num = (int)goal.size();
 	size_t array_size_fp4 = num * sizeof(Vec4);
 
@@ -630,7 +621,7 @@ void BoidModelSHObstacleTunnel::loadData(std::vector<Vec4> goal){
 	queue.finish();
 }
 
-void BoidModelSHObstacleTunnel::bitonicSort(
+void BoidModelSHObstacle::bitonicSort(
 	cl::Buffer d_DstKey,
 	cl::Buffer d_DstVal,
 	cl::Buffer d_SrcKey,
@@ -759,7 +750,7 @@ void BoidModelSHObstacleTunnel::bitonicSort(
 	times[1] = GetTickCount64() - timeNow;
 }
 
-cl_uint BoidModelSHObstacleTunnel::factorRadix2(cl_uint& log2L, cl_uint L){
+cl_uint BoidModelSHObstacle::factorRadix2(cl_uint& log2L, cl_uint L){
 	if (!L){
 		log2L = 0;
 		return 0;
@@ -770,7 +761,7 @@ cl_uint BoidModelSHObstacleTunnel::factorRadix2(cl_uint& log2L, cl_uint L){
 	}
 }
 
-long BoidModelSHObstacleTunnel::getSimulationTime(){
+long BoidModelSHObstacle::getSimulationTime(){
 	cl_ulong startTime, endTime;
 	eventSim.wait();
 	eventSim.getProfilingInfo<cl_ulong>(CL_PROFILING_COMMAND_START, &startTime);
@@ -778,15 +769,15 @@ long BoidModelSHObstacleTunnel::getSimulationTime(){
 	return (endTime - startTime) / 1000000;
 }
 
-void BoidModelSHObstacleTunnel::bindShader(){
+void BoidModelSHObstacle::bindShader(){
 	shader->bind();
 }
 
-void BoidModelSHObstacleTunnel::unbindShader(){
+void BoidModelSHObstacle::unbindShader(){
 	shader->unbind();
 }
 
-std::vector<const char*> BoidModelSHObstacleTunnel::getSimTimeDescriptions(){
+std::vector<const char*> BoidModelSHObstacle::getSimTimeDescriptions(){
 	std::stringstream strstream;
 
 	strstream.str(std::string());
@@ -822,7 +813,7 @@ std::vector<const char*> BoidModelSHObstacleTunnel::getSimTimeDescriptions(){
 	return simTimeDisc;
 }
 
-void BoidModelSHObstacleTunnel::getFollowedBoid(unsigned int* boidIndex, Vec4* pos, Vec4* vel){
+void BoidModelSHObstacle::getFollowedBoid(unsigned int* boidIndex, Vec4* pos, Vec4* vel){
 	size_t size = sizeof(unsigned int)* num;
 	std::vector<unsigned int> sortedHash(num);
 	queue.enqueueReadBuffer(cl_gridIndex_sorted, CL_TRUE, 0, size, sortedHash.data());
