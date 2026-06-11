@@ -88,6 +88,9 @@ int4 getGridPos(
 	 gridPos.x = (int) floor((pos.x - params->worldOrigin.x)/params->cellSize.x);
 	 gridPos.y = (int) floor((pos.y - params->worldOrigin.y)/params->cellSize.y);
 	 gridPos.z = (int) floor((pos.z - params->worldOrigin.z)/params->cellSize.z);
+	 gridPos.x = clamp(gridPos.x, 0, (int)params->gridSize.x - 1);
+	 gridPos.y = clamp(gridPos.y, 0, (int)params->gridSize.y - 1);
+	 gridPos.z = clamp(gridPos.z, 0, (int)params->gridSize.z - 1);
 	 return gridPos;
 }
 
@@ -409,53 +412,22 @@ __kernel void sumVelSH(__global float4* vel, __global uint* startIndex, __global
 
 	uint index = start + id;
 
-	sh_eval_localX[id] = (float8)(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-	sh_eval_localY[id] = (float8)(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-	sh_eval_localZ[id] = (float8)(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-	sh_c0_localX[id] = 0.0f;
-	sh_c0_localY[id] = 0.0f;
-	sh_c0_localZ[id] = 0.0f;
-	barrier(CLK_LOCAL_MEM_FENCE);
+	sumArray[id] = (float4)(0.0f, 0.0f, 0.0f, 0.0f);
 
 	while(index < end){
-		float4 v = vel[index];
-		v.w = 0.0f;
-
-		float8 sh = SHEval3(fast_normalize(v));
-		sh_evalX[id] += sh * v.x;
-		sh_evalY[id] += sh * v.y;
-		sh_evalZ[id] += sh * v.z;
-
-		coef0X[id] += 0.2820947917738781f * v.x;
-		coef0Y[id] += 0.2820947917738781f * v.y;
-		coef0Z[id] += 0.2820947917738781f * v.z;
-
-		index += lSize ;
+		sumArray[id] += vel[index];
+		index += lSize;
 	}
+	barrier(CLK_LOCAL_MEM_FENCE);
 
-	uint k = lSize / 2;
-	while (id < k){
-		sh_eval_localX[id] += sh_eval_localX[id + k];
-		sh_eval_localY[id] += sh_eval_localY[id + k];
-		sh_eval_localZ[id] += sh_eval_localZ[id + k];
-		sh_c0_localX[id] += sh_c0_localX[id + k];
-		sh_c0_localY[id] += sh_c0_localY[id + k];
-		sh_c0_localZ[id] += sh_c0_localZ[id + k];
-		k = k / 2;
-		
+	for(uint k = lSize / 2; k > 0; k = k / 2){
+		if(id < k)
+			sumArray[id] += sumArray[id + k];
 		barrier(CLK_LOCAL_MEM_FENCE);
 	}
 
-	while(id < range){
-		sumArray[id] += sumArray[id + range];
-		range = range / 2;
-	}
-
 	if(id == 0){
-		if(range > 0)
-			vel_sum[cell] = sumArray[id] ;
-		else
-			vel_sum[cell] = sumArray[id];
+		vel_sum[cell] = sumArray[0];
 	}
 
 }
@@ -533,9 +505,9 @@ __kernel void useSH(__global float4* vel,
 			float fu = fast_distance(posOwn, posOther);
 			shVelSum += (sumSH * factor) / ( fabs(fu) * fabs(fu)) * velOther;
 
-			//shVelSum += (sumSH * 0.01) / ( fabs(fu) * fabs(fu)) * velOther;
-			///shVelSum += (sumSH * 0.01) / ( fabs(fu)) * velOther;
-			//shVelSum += ((sumSH * 0.01) * length(velOther)  / ( fabs(fu))) * normalize(velOwn);
+			//shVelSum += (sumSH * 0.01f) / ( fabs(fu) * fabs(fu)) * velOther;
+			///shVelSum += (sumSH * 0.01f) / ( fabs(fu)) * velOther;
+			//shVelSum += ((sumSH * 0.01f) * length(velOther)  / ( fabs(fu))) * normalize(velOwn);
 				
 		}
 	}

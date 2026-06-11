@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "simulation.h"
+#include "Simulation.h"
 #include "vectorTypes.h"
 #include "gfx.h"
 #include <math.h>
@@ -35,6 +35,7 @@ Simulation::Simulation() {
 	clHelper = new CLHelper(logFile);
 
 	currentModel = BOID_SIMPLE;
+	pendingModel = BOID_SIMPLE;
 	boidModel = new BoidModelSimple(clHelper, pos, vel, &simParams);
 	
 	worldBox = new WorldBox(simParams.gridSize.x, TRUE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
@@ -261,14 +262,19 @@ void Simulation::restart(int modelNum){
 }
 
 
-void Simulation::start(){
+void Simulation::start(int initialModel){
 	if (initOk){
+		pendingModel = initialModel;
 		timeLast = GetTickCount64();
 		GFX::getInstance().startRendering();
 	}
 }
 
 void Simulation::simulationStep(){
+	if (pendingModel != currentModel){
+		switchToModel(pendingModel);
+		return;
+	}
 	timeDiff = getTimeDiff();
 	boidModel->simulate(timeDiff);
 }
@@ -284,12 +290,11 @@ float Simulation::getTimeDiff(){
 		return timeReturn;
 }
 
-void Simulation::keyPress(unsigned char key){
-	switch (key)
-	{
-	case '1':	
-		currentModel = BOID_SIMPLE;
-
+void Simulation::switchToModel(int modelNum){
+	currentModel = modelNum;
+	pendingModel = modelNum;	// keep in sync or simulationStep() switches back
+	switch (modelNum){
+	case BOID_SIMPLE:
 		simParams.numBodies = NUM_BOIDS_SIMPLE;
 		simParams.wAlignment = WEIGHT_ALIGNMENT;
 		simParams.wCohesion = WEIGHT_COHESION;
@@ -299,13 +304,10 @@ void Simulation::keyPress(unsigned char key){
 		simParams.maxVelCor = MAX_VEL_COR_SIMPLE;
 		simParams.gridSize = make_uint3(GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z);
 		simParams.numCells = GRID_SIZE_X * GRID_SIZE_Y * GRID_SIZE_Z;
-
 		restart(currentModel);
 		GFX::getInstance().setCam(CAMERA_PRESET_STANDARD);
 		break;
-	case '2':	
-		currentModel = BOID_GRID;
-		
+	case BOID_GRID:
 		simParams.numBodies = NUM_BOIDS_GRID;
 		simParams.wAlignment = WEIGHT_ALIGNMENT_GRID;
 		simParams.wCohesion = WEIGHT_COHESION_GRID;
@@ -315,14 +317,11 @@ void Simulation::keyPress(unsigned char key){
 		simParams.maxVelCor = MAX_VEL_COR_GRID;
 		simParams.gridSize = make_uint3(GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z);
 		simParams.numCells = GRID_SIZE_X * GRID_SIZE_Y * GRID_SIZE_Z;
-
 		restart(currentModel);
 		GFX::getInstance().setCam(CAMERA_PRESET_STANDARD);
 		break;
-	case '3':	//switch model to SH
-		currentModel = BOID_SH;
-
-		simParams.numBodies = NUM_BOIDS_SIMPLE; //NUM_BOIDS_SH;
+	case BOID_SH:
+		simParams.numBodies = NUM_BOIDS_SIMPLE;
 		simParams.wAlignment = WEIGHT_ALIGNMENT_SH;
 		simParams.wCohesion = WEIGHT_COHESION_SH;
 		simParams.wSeparation = WEIGHT_SEPARATION_SH;
@@ -331,14 +330,11 @@ void Simulation::keyPress(unsigned char key){
 		simParams.maxVelCor = MAX_VEL_COR_GRID;
 		simParams.gridSize = make_uint3(GRID_SIZE_X_SH, GRID_SIZE_Y_SH, GRID_SIZE_Z_SH);
 		simParams.numCells = GRID_SIZE_X_SH * GRID_SIZE_Y_SH * GRID_SIZE_Z_SH;
-		
 		restart(currentModel);
 		GFX::getInstance().setCam(CAMERA_PRESET_SH);
 		break;
-	case '4':
-		currentModel = BOID_GRID_2D;
-
-		simParams.numBodies = NUM_BOIDS_GRID_2D; //NUM_BOIDS_SH;
+	case BOID_GRID_2D:
+		simParams.numBodies = NUM_BOIDS_GRID_2D;
 		simParams.wAlignment = WEIGHT_ALIGNMENT_GRID_2D;
 		simParams.wCohesion = WEIGHT_COHESION_GRID_2D;
 		simParams.wSeparation = WEIGHT_SEPARATION_GRID_2D;
@@ -347,14 +343,11 @@ void Simulation::keyPress(unsigned char key){
 		simParams.maxVelCor = MAX_VEL_COR_GRID;
 		simParams.gridSize = make_uint3(GRID_SIZE_X_GRID_2D, GRID_SIZE_Y_GRID_2D, GRID_SIZE_Z_GRID_2D);
 		simParams.numCells = GRID_SIZE_X_GRID_2D * GRID_SIZE_Y_GRID_2D * GRID_SIZE_Z_GRID_2D;
-
 		restart(currentModel);
 		GFX::getInstance().setCam(CAMERA_PRESET_2D_FAR);
 		break;
-	case '5':
-		currentModel = BOID_SH_2D;
-
-		simParams.numBodies = NUM_BOIDS_SIMPLE; //NUM_BOIDS_SH;
+	case BOID_SH_2D:
+		simParams.numBodies = NUM_BOIDS_SIMPLE;
 		simParams.wAlignment = WEIGHT_ALIGNMENT_SH_2D;
 		simParams.wCohesion = WEIGHT_COHESION_SH_2D;
 		simParams.wSeparation = WEIGHT_SEPARATION_SH_2D;
@@ -363,14 +356,11 @@ void Simulation::keyPress(unsigned char key){
 		simParams.maxVelCor = MAX_VEL_COR_GRID;
 		simParams.gridSize = make_uint3(GRID_SIZE_X_SH_2D, GRID_SIZE_Y_SH_2D, GRID_SIZE_Z_SH_2D);
 		simParams.numCells = GRID_SIZE_X_SH_2D * GRID_SIZE_Y_SH_2D * GRID_SIZE_Z_SH_2D;
-
 		restart(currentModel);
 		GFX::getInstance().setCam(CAMERA_PRESET_2D);
 		break;
-	case '6':
-		currentModel = BOID_SH_WAY1;
-
-		simParams.numBodies = NUM_BOIDS_SIMPLE; //NUM_BOIDS_SH;
+	case BOID_SH_WAY1:
+		simParams.numBodies = NUM_BOIDS_SIMPLE;
 		simParams.wAlignment = WEIGHT_ALIGNMENT_SH_WAY1;
 		simParams.wCohesion = WEIGHT_COHESION_SH_WAY1;
 		simParams.wSeparation = WEIGHT_SEPARATION_SH_WAY1;
@@ -380,14 +370,11 @@ void Simulation::keyPress(unsigned char key){
 		simParams.gridSize = make_uint3(GRID_SIZE_X_SH_WAY1, GRID_SIZE_Y_SH_WAY1, GRID_SIZE_Z_SH_WAY1);
 		simParams.numCells = GRID_SIZE_X_SH_WAY1 * GRID_SIZE_Y_SH_WAY1 * GRID_SIZE_Z_SH_WAY1;
 		simParams.wPath = WEIGHT_GOAL_SH_WAY1;
-
 		restart(currentModel);
 		GFX::getInstance().setCam(CAMERA_PRESET_SH);
 		break;
-	case '7':
-		currentModel = BOID_SH_WAY2;
-
-		simParams.numBodies = NUM_BOIDS_SIMPLE; //NUM_BOIDS_SH;
+	case BOID_SH_WAY2:
+		simParams.numBodies = NUM_BOIDS_SIMPLE;
 		simParams.wAlignment = WEIGHT_ALIGNMENT_SH_WAY1;
 		simParams.wCohesion = WEIGHT_COHESION_SH_WAY1;
 		simParams.wSeparation = WEIGHT_SEPARATION_SH_WAY1;
@@ -397,14 +384,11 @@ void Simulation::keyPress(unsigned char key){
 		simParams.gridSize = make_uint3(GRID_SIZE_X_SH_WAY1, GRID_SIZE_Y_SH_WAY1, GRID_SIZE_Z_SH_WAY1);
 		simParams.numCells = GRID_SIZE_X_SH_WAY1 * GRID_SIZE_Y_SH_WAY1 * GRID_SIZE_Z_SH_WAY1;
 		simParams.wPath = WEIGHT_GOAL_SH_WAY1;
-
 		restart(currentModel);
 		GFX::getInstance().setCam(CAMERA_PRESET_SH);
 		break;
-	case '8':
-		currentModel = BOID_SH_OBSTACLE;
-
-		simParams.numBodies = NUM_BOIDS_SIMPLE; //NUM_BOIDS_SH;
+	case BOID_SH_OBSTACLE:
+		simParams.numBodies = NUM_BOIDS_SIMPLE;
 		simParams.wAlignment = WEIGHT_ALIGNMENT_SH_OBSTACLE;
 		simParams.wCohesion = WEIGHT_COHESION_SH_OBSTACLE;
 		simParams.wSeparation = WEIGHT_SEPARATION_SH_OBSTACLE;
@@ -414,14 +398,11 @@ void Simulation::keyPress(unsigned char key){
 		simParams.gridSize = make_uint3(GRID_SIZE_X_SH_OBSTACLE, GRID_SIZE_Y_SH_OBSTACLE, GRID_SIZE_Z_SH_OBSTACLE);
 		simParams.numCells = GRID_SIZE_X_SH_OBSTACLE * GRID_SIZE_Y_SH_OBSTACLE * GRID_SIZE_Z_SH_OBSTACLE;
 		simParams.wPath = WEIGHT_GOAL_SH_OBSTACLE;
-
 		restart(currentModel);
 		GFX::getInstance().setCam(CAMERA_PRESET_SH);
 		break;
-	case '9':
-		currentModel = BOID_SH_OBSTACLE_COMBINED;
-
-		simParams.numBodies = NUM_BOIDS_SIMPLE; //NUM_BOIDS_SH;
+	case BOID_SH_OBSTACLE_COMBINED:
+		simParams.numBodies = NUM_BOIDS_SIMPLE;
 		simParams.wAlignment = WEIGHT_ALIGNMENT_SH_OBSTACLE;
 		simParams.wCohesion = WEIGHT_COHESION_SH_OBSTACLE;
 		simParams.wSeparation = WEIGHT_SEPARATION_SH_OBSTACLE;
@@ -431,14 +412,11 @@ void Simulation::keyPress(unsigned char key){
 		simParams.gridSize = make_uint3(GRID_SIZE_X_SH_OBSTACLE, GRID_SIZE_Y_SH_OBSTACLE, GRID_SIZE_Z_SH_OBSTACLE);
 		simParams.numCells = GRID_SIZE_X_SH_OBSTACLE * GRID_SIZE_Y_SH_OBSTACLE * GRID_SIZE_Z_SH_OBSTACLE;
 		simParams.wPath = WEIGHT_GOAL_SH_OBSTACLE;
-
 		restart(currentModel);
 		GFX::getInstance().setCam(CAMERA_PRESET_SH);
 		break;
-	case '0':
-		currentModel = BOID_SH_OBSTACLE_TUNNEL;
-
-		simParams.numBodies = NUM_BOIDS_SIMPLE; //NUM_BOIDS_SH;
+	case BOID_SH_OBSTACLE_TUNNEL:
+		simParams.numBodies = NUM_BOIDS_SIMPLE;
 		simParams.wAlignment = WEIGHT_ALIGNMENT_SH_OBSTACLE;
 		simParams.wCohesion = WEIGHT_COHESION_SH_OBSTACLE;
 		simParams.wSeparation = WEIGHT_SEPARATION_SH_OBSTACLE;
@@ -448,10 +426,25 @@ void Simulation::keyPress(unsigned char key){
 		simParams.gridSize = make_uint3(GRID_SIZE_X_SH_OBSTACLE, GRID_SIZE_Y_SH_OBSTACLE, GRID_SIZE_Z_SH_OBSTACLE);
 		simParams.numCells = GRID_SIZE_X_SH_OBSTACLE * GRID_SIZE_Y_SH_OBSTACLE * GRID_SIZE_Z_SH_OBSTACLE;
 		simParams.wPath = WEIGHT_GOAL_SH_OBSTACLE;
-
 		restart(currentModel);
 		GFX::getInstance().setCam(CAMERA_PRESET_SH);
 		break;
+	}
+}
+
+void Simulation::keyPress(unsigned char key){
+	switch (key)
+	{
+	case '1':	switchToModel(BOID_SIMPLE);              break;
+	case '2':	switchToModel(BOID_GRID);                break;
+	case '3':	switchToModel(BOID_SH);                  break;
+	case '4':	switchToModel(BOID_GRID_2D);             break;
+	case '5':	switchToModel(BOID_SH_2D);               break;
+	case '6':	switchToModel(BOID_SH_WAY1);             break;
+	case '7':	switchToModel(BOID_SH_WAY2);             break;
+	case '8':	switchToModel(BOID_SH_OBSTACLE);         break;
+	case '9':	switchToModel(BOID_SH_OBSTACLE_COMBINED);break;
+	case '0':	switchToModel(BOID_SH_OBSTACLE_TUNNEL);  break;
 	case 'R':	//restart model
 	case 'r': 
 		restart(currentModel);

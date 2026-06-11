@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "boidModel.h"
+#include "BoidModel.h"
 #include "vectorTypes.h"
 
 BoidModelSimple::BoidModelSimple(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP) : BoidModel(clHlpr)
@@ -140,23 +140,29 @@ void BoidModelSimple::createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel)
 
 	size_t array_size = num * sizeof(Vec4);
 
-
 	createVboBindShader(pos, vel);
 
 	//make sure OpenGL is finished before we proceed
 	glFinish();
 
 	log("GL VBO Buffer created");
-	// create OpenCL buffer from GL VBO
-	try
-	{
-		cl_pos_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, pos_vbo[0], &err));
-		cl_pos_vbos_out.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, pos_out_vbo[0], &err));
 
-		//create the OpenCL only arrays
-		cl_vel_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, vel_vbo[0], &err));
-		cl_vel_vbos_out.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, vel_out_vbo[0], &err));
+	useGLInterop = clHelper->hasGLInterop();
 
+	try {
+		if (useGLInterop) {
+			cl_pos_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, pos_vbo[0], &err));
+			cl_pos_vbos_out.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, pos_out_vbo[0], &err));
+			cl_vel_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, vel_vbo[0], &err));
+			cl_vel_vbos_out.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, vel_out_vbo[0], &err));
+			log("CL/GL shared buffers created");
+		} else {
+			cl_pos_plain     = cl::Buffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, array_size, (void*)pos.data(), &err);
+			cl_pos_out_plain = cl::Buffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, array_size, (void*)pos.data(), &err);
+			cl_vel_plain     = cl::Buffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, array_size, (void*)vel.data(), &err);
+			cl_vel_out_plain = cl::Buffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, array_size, (void*)vel.data(), &err);
+			log("CL plain buffers created (no GL interop)");
+		}
 		cl_simParams = cl::Buffer(context, CL_MEM_READ_ONLY, sizeof(simParams_t), NULL, &err);
 	}
 	catch (cl::Error er) {
@@ -184,12 +190,10 @@ void BoidModelSimple::loadProgram(const std::string &filename){
 		throw(errno);
 	}
 
-	cl::Program program;
-
 	try
 	{
 	  cl::Program::Sources source;
-	  source.push_back({ kernelSource.c_str(), kernelSource.size() });
+	  source.push_back(kernelSource);
 	  program = cl::Program(context, source);
 	}
 	catch (cl::Error er) {
@@ -227,60 +231,81 @@ void BoidModelSimple::loadData(){
 }
 
 void BoidModelSimple::simulate(float dt){
-	printf("run kernel\n");
-	//this will update our system by calculating new velocity and updating the positions of our particles
-	//Make sure OpenGL is done using our VBOs
-	glFinish();
-	// map OpenGL buffer object for writing from OpenCL
-	//this passes in the vector of VBO buffer objects (position and color)
-	err = queue.enqueueAcquireGLObjects(&cl_pos_vbos, NULL, &event);
-	err = queue.enqueueAcquireGLObjects(&cl_pos_vbos_out, NULL, &event);
-	err = queue.enqueueAcquireGLObjects(&cl_vel_vbos, NULL, &event);
-	err = queue.enqueueAcquireGLObjects(&cl_vel_vbos_out, NULL, &event);
-	//printf("acquire: %s\n", oclErrorString(err));
-	queue.finish();
+	size_t array_size = num * sizeof(Vec4);
 
-	if ((helper++ % 2) == 0){
-		try
-		{
-			err = kernel.setArg(0, cl_pos_vbos[0]); //position vbo
-			err = kernel.setArg(1, cl_pos_vbos_out[0]); //position vbo
-			err = kernel.setArg(2, cl_vel_vbos[0]);
-			err = kernel.setArg(3, cl_vel_vbos_out[0]);
-			err = kernel.setArg(5, cl_simParams);
-		}
-		catch (cl::Error er) {
-			log("ERROR: " + std::string(er.what()) + clHelper->oclErrorString(er.err()));
-		}
-	}
-	else {
-		try
-		{
-			err = kernel.setArg(1, cl_pos_vbos[0]); //position vbo
-			err = kernel.setArg(0, cl_pos_vbos_out[0]); //position vbo
-			err = kernel.setArg(3, cl_vel_vbos[0]);
-			err = kernel.setArg(2, cl_vel_vbos_out[0]);
-			err = kernel.setArg(5, cl_simParams);
-		}
-		catch (cl::Error er) {
-			log("ERROR: " + std::string(er.what()) + clHelper->oclErrorString(er.err()));
-		}
+	if (useGLInterop) {
+		glFinish();
+		err = queue.enqueueAcquireGLObjects(&cl_pos_vbos, NULL, &event);
+		err = queue.enqueueAcquireGLObjects(&cl_pos_vbos_out, NULL, &event);
+		err = queue.enqueueAcquireGLObjects(&cl_vel_vbos, NULL, &event);
+		err = queue.enqueueAcquireGLObjects(&cl_vel_vbos_out, NULL, &event);
+		queue.finish();
 	}
 
+	bool pingPong = ((helper++ % 2) == 0);
 
-	kernel.setArg(4, dt); //pass in the timestep
-	//execute the kernel
+	try {
+		if (pingPong) {
+			if (useGLInterop) {
+				err = kernel.setArg(0, cl_pos_vbos[0]);
+				err = kernel.setArg(1, cl_pos_vbos_out[0]);
+				err = kernel.setArg(2, cl_vel_vbos[0]);
+				err = kernel.setArg(3, cl_vel_vbos_out[0]);
+			} else {
+				err = kernel.setArg(0, cl_pos_plain);
+				err = kernel.setArg(1, cl_pos_out_plain);
+				err = kernel.setArg(2, cl_vel_plain);
+				err = kernel.setArg(3, cl_vel_out_plain);
+			}
+		} else {
+			if (useGLInterop) {
+				err = kernel.setArg(1, cl_pos_vbos[0]);
+				err = kernel.setArg(0, cl_pos_vbos_out[0]);
+				err = kernel.setArg(3, cl_vel_vbos[0]);
+				err = kernel.setArg(2, cl_vel_vbos_out[0]);
+			} else {
+				err = kernel.setArg(1, cl_pos_plain);
+				err = kernel.setArg(0, cl_pos_out_plain);
+				err = kernel.setArg(3, cl_vel_plain);
+				err = kernel.setArg(2, cl_vel_out_plain);
+			}
+		}
+		err = kernel.setArg(5, cl_simParams);
+	} catch (cl::Error er) {
+		log("ERROR: " + std::string(er.what()) + clHelper->oclErrorString(er.err()));
+	}
+
+	kernel.setArg(4, dt);
 	err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(num), cl::NullRange, NULL, &eventSim);
 	queue.finish();
 
-
-	//Release the VBOs so OpenGL can play with them
-	err = queue.enqueueReleaseGLObjects(&cl_pos_vbos, NULL, &event);
-	err = queue.enqueueReleaseGLObjects(&cl_pos_vbos_out, NULL, &event);
-	err = queue.enqueueReleaseGLObjects(&cl_vel_vbos, NULL, &event);
-	err = queue.enqueueReleaseGLObjects(&cl_vel_vbos_out, NULL, &event);
-	//printf("release gl: %s\n", oclErrorString(err));
-	queue.finish();
+	if (useGLInterop) {
+		err = queue.enqueueReleaseGLObjects(&cl_pos_vbos, NULL, &event);
+		err = queue.enqueueReleaseGLObjects(&cl_pos_vbos_out, NULL, &event);
+		err = queue.enqueueReleaseGLObjects(&cl_vel_vbos, NULL, &event);
+		err = queue.enqueueReleaseGLObjects(&cl_vel_vbos_out, NULL, &event);
+		queue.finish();
+	} else {
+		// Copy CL output back to the GL VBO that will be rendered next frame
+		std::vector<Vec4> tmpBuf(num);
+		if (pingPong) {
+			// kernel wrote to cl_pos_out_plain / cl_vel_out_plain
+			queue.enqueueReadBuffer(cl_pos_out_plain, CL_TRUE, 0, array_size, tmpBuf.data());
+			glBindBuffer(GL_ARRAY_BUFFER, pos_out_vbo[0]);
+			glBufferSubData(GL_ARRAY_BUFFER, 0, array_size, tmpBuf.data());
+			queue.enqueueReadBuffer(cl_vel_out_plain, CL_TRUE, 0, array_size, tmpBuf.data());
+			glBindBuffer(GL_ARRAY_BUFFER, vel_out_vbo[0]);
+			glBufferSubData(GL_ARRAY_BUFFER, 0, array_size, tmpBuf.data());
+		} else {
+			// kernel wrote to cl_pos_plain / cl_vel_plain
+			queue.enqueueReadBuffer(cl_pos_plain, CL_TRUE, 0, array_size, tmpBuf.data());
+			glBindBuffer(GL_ARRAY_BUFFER, pos_vbo[0]);
+			glBufferSubData(GL_ARRAY_BUFFER, 0, array_size, tmpBuf.data());
+			queue.enqueueReadBuffer(cl_vel_plain, CL_TRUE, 0, array_size, tmpBuf.data());
+			glBindBuffer(GL_ARRAY_BUFFER, vel_vbo[0]);
+			glBufferSubData(GL_ARRAY_BUFFER, 0, array_size, tmpBuf.data());
+		}
+	}
 }
 
 void BoidModelSimple::render(){

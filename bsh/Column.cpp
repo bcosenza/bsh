@@ -1,6 +1,6 @@
 #include "stdafx.h"
-#include "column.h"
-#include "simParam.h"
+#include "Column.h"
+#include "SimParam.h"
 #include "vectorTypes.h"
 
 Column::Column(bool visible, float cellSizeX, float cellSizeY, float cellSizeZ, int posX, int posY, int posZ, int hH){

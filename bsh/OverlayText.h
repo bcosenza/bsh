@@ -9,8 +9,8 @@
 #define _OVERLAYTEXT_H_
 
 #include "stdafx.h"
-#include "shader.h"
-#include "renderable.h"
+#include "Shader.h"
+#include "Renderable.h"
 #include "vectorTypes.h"
 
 #include <ft2build.h>

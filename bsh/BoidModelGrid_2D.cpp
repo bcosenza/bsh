@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "boidModel.h"
+#include "BoidModel.h"
 
 BoidModelGrid_2D::BoidModelGrid_2D(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP) : BoidModel(clHlpr)
 {
@@ -31,7 +31,7 @@ BoidModelGrid_2D::BoidModelGrid_2D(CLHelper* clHlpr, std::vector<Vec4> pos, std:
 	createBuffer(pos, vel);
 	loadData(vel);
 
-	programBoid    = loadProgram(kernel_path + "BoidModelGrid_2D_kernel_v2.cl");
+	programBoid    = loadProgram(kernel_path + "boidModelGrid_2D_kernel_v2.cl");
 	programBitonic = loadProgram(kernel_path + "bitonic_sort.cl");
 
 	loadKernel();
@@ -70,8 +70,8 @@ void BoidModelGrid_2D::simulate(float dt){
 	glFinish();
 	// map OpenGL buffer object for writing from OpenCL
 	//this passes in the vector of VBO buffer objects (position and color)
-	err = queue.enqueueAcquireGLObjects(&cl_pos_vbos, NULL, &event);
-	err = queue.enqueueAcquireGLObjects(&cl_vel_vbos, NULL, &event);
+	err = clHelper->acquireGLObjects(queue, &cl_pos_vbos, &event);
+	err = clHelper->acquireGLObjects(queue, &cl_vel_vbos, &event);
 	//printf("acquire: %s\n", oclErrorString(err));
 	queue.finish();
 
@@ -210,8 +210,8 @@ void BoidModelGrid_2D::simulate(float dt){
 	queue.finish();*/
 	//printf("%d %d %d\n", C[0], C[512], C[1023]);
 	//Release the VBOs so OpenGL can play with them
-	err = queue.enqueueReleaseGLObjects(&cl_pos_vbos, NULL, &event);
-	err = queue.enqueueReleaseGLObjects(&cl_vel_vbos, NULL, &event);
+	err = clHelper->releaseGLObjects(queue, &cl_pos_vbos, &event);
+	err = clHelper->releaseGLObjects(queue, &cl_vel_vbos, &event);
 	//printf("release gl: %s\n", oclErrorString(err));
 
 }
@@ -258,7 +258,7 @@ cl::Program BoidModelGrid_2D::loadProgram(const std::string &filename){
 	try
 	{
 		cl::Program::Sources source; 
-        source.push_back({ kernelSource.c_str(), kernelSource.size() });
+        source.push_back(kernelSource);
 		program = cl::Program(context, source);
 	}
 	catch (cl::Error er)
@@ -308,8 +308,8 @@ void BoidModelGrid_2D::createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel
 
 	createVboBindShader(pos, vel);
 	// create OpenCL buffer from GL VBO
-	cl_pos_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, pos_vbo[0], &err));
-	cl_vel_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, vel_vbo[0], &err));
+	cl_pos_vbos.push_back(clHelper->createFromGLBuffer(pos_vbo[0], &err));
+	cl_vel_vbos.push_back(clHelper->createFromGLBuffer(vel_vbo[0], &err));
 
 	//create the OpenCL only arrays
 	try{

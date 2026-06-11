@@ -1,4 +1,4 @@
-#include "skyBox.h"
+#include "SkyBox.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -95,6 +95,7 @@ void Skybox::loadCubeMapSide(GLuint texture, GLenum side_target, const char* fil
 		file_name, &x, &y, &n, force_channels);
 	if (!image_data) {
 		fprintf(stderr, "ERROR: could not load %s\n", file_name);
+		return;
 	}
 	// non-power-of-2 dimensions check
 	if ((x & (x - 1)) != 0 || (y & (y - 1)) != 0) {

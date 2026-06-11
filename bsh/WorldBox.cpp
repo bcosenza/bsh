@@ -1,6 +1,6 @@
 #include "stdafx.h"
-#include "worldBox.h"
-#include "simParam.h"
+#include "WorldBox.h"
+#include "SimParam.h"
 #include "vectorTypes.h"
 
 WorldBox::WorldBox(unsigned int factor, bool visible, unsigned int gridSizeX, unsigned int gridSizeY, unsigned int gridSizeZ){

@@ -115,6 +115,9 @@ int4 getGridPos(
 	gridPos.x = (int)floor((pos.x - params->worldOrigin.x) / params->cellSize.x);
 	gridPos.y = (int)floor((pos.y - params->worldOrigin.y) / params->cellSize.y);
 	gridPos.z = (int)floor((pos.z - params->worldOrigin.z) / params->cellSize.z);
+	gridPos.x = clamp(gridPos.x, 0, (int)params->gridSize.x - 1);
+	gridPos.y = clamp(gridPos.y, 0, (int)params->gridSize.y - 1);
+	gridPos.z = clamp(gridPos.z, 0, (int)params->gridSize.z - 1);
 	return gridPos;
 }
 
@@ -508,13 +511,13 @@ __kernel void useSH(__global const float4* vel,
 				if (dotP < 0.0)
 					factor = FACTOR_NO;
 
-				float8 SHOtherX = (1.f / (dist * dist + 0.1)) * sh_eval_localX[j];
-				float8 SHOtherY = (1.f / (dist * dist + 0.1)) * sh_eval_localY[j];
-				float8 SHOtherZ = (1.f / (dist * dist + 0.1)) * sh_eval_localZ[j];
+				float8 SHOtherX = (1.f / (dist * dist + 0.1f)) * sh_eval_localX[j];
+				float8 SHOtherY = (1.f / (dist * dist + 0.1f)) * sh_eval_localY[j];
+				float8 SHOtherZ = (1.f / (dist * dist + 0.1f)) * sh_eval_localZ[j];
 
-				float sumAllSHX = (1.f / (dist * dist + 0.1)) * sh_c0_localX[j] * 0.2820947917738781f * M_PI_F;
-				float sumAllSHY = (1.f / (dist * dist + 0.1)) * sh_c0_localY[j] * 0.2820947917738781f * M_PI_F;
-				float sumAllSHZ = (1.f / (dist * dist + 0.1)) * sh_c0_localZ[j] * 0.2820947917738781f * M_PI_F;
+				float sumAllSHX = (1.f / (dist * dist + 0.1f)) * sh_c0_localX[j] * 0.2820947917738781f * M_PI_F;
+				float sumAllSHY = (1.f / (dist * dist + 0.1f)) * sh_c0_localY[j] * 0.2820947917738781f * M_PI_F;
+				float sumAllSHZ = (1.f / (dist * dist + 0.1f)) * sh_c0_localZ[j] * 0.2820947917738781f * M_PI_F;
 
 				sumAllSHX += SHSelf.s0 * SHOtherX.s0 * M_PI_F * 2.0f / 3.0f;
 				sumAllSHX += SHSelf.s1 * SHOtherX.s1 * M_PI_F * 2.0f / 3.0f;

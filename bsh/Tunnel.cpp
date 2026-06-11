@@ -1,6 +1,6 @@
 #include "stdafx.h"
-#include "tunnel.h"
-#include "simParam.h"
+#include "Tunnel.h"
+#include "SimParam.h"
 #include "vectorTypes.h"
 
 Tunnel::Tunnel(bool visible, float cellSizeX, float cellSizeY, float cellSizeZ, int posX, int posY, int posZ, int w){

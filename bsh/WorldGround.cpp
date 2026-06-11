@@ -1,6 +1,6 @@
 #include "stdafx.h"
-#include "worldGround.h"
-#include "simParam.h"
+#include "WorldGround.h"
+#include "SimParam.h"
 #include "vectorTypes.h"
 
 WorldGround::WorldGround(bool visible, unsigned int gridSizeX, unsigned int gridSizeY, unsigned int gridSizeZ){

@@ -16,7 +16,7 @@
 #define TRIANGLE FALSE
 
 //path for the folder where log files are stored
-#define LOG_PATH_WIN ".\\logs"
+#define LOG_PATH_WIN "./logs"
 
 //edge size of skybox
 #define SKYBOX_SIZE 1200.f
@@ -25,7 +25,7 @@
 #define BOID_POINT_SIZE 1.4f
 
 //color for boids
-#define BOID_COLOR Vec4(.0, .0, 0.0, 1.0)
+#define BOID_COLOR Vec4(1.0, 1.0, 1.0, 1.0)
 
 //color for world box
 #define WORLD_BOX_COLOR Vec4(1.0, 1.0, 1.0, 1.0)

@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "boidModel.h"
+#include "BoidModel.h"
 
 BoidModelSHWay1::BoidModelSHWay1(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, std::vector<Vec4> color, simParams_t* simP) : BoidModel(clHlpr)
 {
@@ -26,7 +26,7 @@ BoidModelSHWay1::BoidModelSHWay1(CLHelper* clHlpr, std::vector<Vec4> pos, std::v
 	createBuffer(pos, vel, goal, color);
 	loadData(goal);
 
-	programBoid    = loadProgram(kernel_path + "BoidModelSHWay1_kernel_v1.cl");
+	programBoid    = loadProgram(kernel_path + "boidModelSHWay1_kernel_v1.cl");
 	programBitonic = loadProgram(kernel_path + "bitonic_sort.cl");
 
 	loadKernel();
@@ -65,12 +65,12 @@ void BoidModelSHWay1::simulate(float dt){
 	glFinish();
 	// map OpenGL buffer object for writing from OpenCL
 	//this passes in the vector of VBO buffer objects (position and color)
-	err = queue.enqueueAcquireGLObjects(&cl_pos_vbos, NULL, &event);
-	err = queue.enqueueAcquireGLObjects(&cl_pos_vbos_out, NULL, &event);
-	err = queue.enqueueAcquireGLObjects(&cl_vel_vbos, NULL, &event);
-	err = queue.enqueueAcquireGLObjects(&cl_vel_vbos_out, NULL, &event);
-	err = queue.enqueueAcquireGLObjects(&cl_color_vbos, NULL, &event);
-	err = queue.enqueueAcquireGLObjects(&cl_color_vbos_out, NULL, &event);
+	err = clHelper->acquireGLObjects(queue, &cl_pos_vbos, &event);
+	err = clHelper->acquireGLObjects(queue, &cl_pos_vbos_out, &event);
+	err = clHelper->acquireGLObjects(queue, &cl_vel_vbos, &event);
+	err = clHelper->acquireGLObjects(queue, &cl_vel_vbos_out, &event);
+	err = clHelper->acquireGLObjects(queue, &cl_color_vbos, &event);
+	err = clHelper->acquireGLObjects(queue, &cl_color_vbos_out, &event);
 	queue.finish();
 
 	//Get grid hash value for every boid
@@ -338,12 +338,12 @@ void BoidModelSHWay1::simulate(float dt){
 	*/
 
 	//Release the VBOs so OpenGL can play with them
-	err = queue.enqueueReleaseGLObjects(&cl_pos_vbos, NULL, &event);
-	err = queue.enqueueReleaseGLObjects(&cl_pos_vbos_out, NULL, &event);
-	err = queue.enqueueReleaseGLObjects(&cl_vel_vbos, NULL, &event);
-	err = queue.enqueueReleaseGLObjects(&cl_vel_vbos_out, NULL, &event);
-	err = queue.enqueueReleaseGLObjects(&cl_color_vbos, NULL, &event);
-	err = queue.enqueueReleaseGLObjects(&cl_color_vbos_out, NULL, &event);
+	err = clHelper->releaseGLObjects(queue, &cl_pos_vbos, &event);
+	err = clHelper->releaseGLObjects(queue, &cl_pos_vbos_out, &event);
+	err = clHelper->releaseGLObjects(queue, &cl_vel_vbos, &event);
+	err = clHelper->releaseGLObjects(queue, &cl_vel_vbos_out, &event);
+	err = clHelper->releaseGLObjects(queue, &cl_color_vbos, &event);
+	err = clHelper->releaseGLObjects(queue, &cl_color_vbos_out, &event);
 }
 
 GLuint BoidModelSHWay1::getPosVBO(){
@@ -397,7 +397,7 @@ cl::Program BoidModelSHWay1::loadProgram(const std::string &filename){
 	try
 	{
 	  cl::Program::Sources source;
-	  source.push_back({ kernelSource.c_str(), kernelSource.size() });
+	  source.push_back(kernelSource);
 	  program = cl::Program(context, source);
 	}
 	catch (cl::Error er)
@@ -461,14 +461,14 @@ void BoidModelSHWay1::createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel,
 
 	createVboBindShader(pos, vel, color);
 	// create OpenCL buffer from GL VBO
-	cl_pos_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, pos_vbo[0], &err));
-	cl_pos_vbos_out.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, pos_vbo_out[0], &err));
+	cl_pos_vbos.push_back(clHelper->createFromGLBuffer(pos_vbo[0], &err));
+	cl_pos_vbos_out.push_back(clHelper->createFromGLBuffer(pos_vbo_out[0], &err));
 
-	cl_vel_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, vel_vbo[0], &err));
-	cl_vel_vbos_out.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, vel_vbo_out[0], &err));
+	cl_vel_vbos.push_back(clHelper->createFromGLBuffer(vel_vbo[0], &err));
+	cl_vel_vbos_out.push_back(clHelper->createFromGLBuffer(vel_vbo_out[0], &err));
 
-	cl_color_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, color_vbo[0], &err));
-	cl_color_vbos_out.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, color_vbo_out[0], &err));
+	cl_color_vbos.push_back(clHelper->createFromGLBuffer(color_vbo[0], &err));
+	cl_color_vbos_out.push_back(clHelper->createFromGLBuffer(color_vbo_out[0], &err));
 	//create the OpenCL only arrays
 	try
 	{

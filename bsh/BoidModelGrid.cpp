@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "boidModel.h"
+#include "BoidModel.h"
 #include <utility>
 
 BoidModelGrid::BoidModelGrid(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP) : BoidModel(clHlpr)
@@ -65,8 +65,8 @@ void BoidModelGrid::simulate(float dt){
 
 	// map OpenGL buffer object for writing from OpenCL
 	//this passes in the vector of VBO buffer objects (position and color)
-	err = queue.enqueueAcquireGLObjects(&cl_pos_vbos, NULL, &event);
-	err = queue.enqueueAcquireGLObjects(&cl_vel_vbos, NULL, &event);
+	err = clHelper->acquireGLObjects(queue, &cl_pos_vbos, &event);
+	err = clHelper->acquireGLObjects(queue, &cl_vel_vbos, &event);
 	queue.finish();
 
 	//Get grid hash value for every boid
@@ -217,8 +217,8 @@ void BoidModelGrid::simulate(float dt){
 
 
 	//Release the VBOs so OpenGL can play with them
-	err = queue.enqueueReleaseGLObjects(&cl_pos_vbos, NULL, &event);
-	err = queue.enqueueReleaseGLObjects(&cl_vel_vbos, NULL, &event);
+	err = clHelper->releaseGLObjects(queue, &cl_pos_vbos, &event);
+	err = clHelper->releaseGLObjects(queue, &cl_vel_vbos, &event);
 }
 
 GLuint BoidModelGrid::getPosVBO(){
@@ -261,9 +261,8 @@ cl::Program BoidModelGrid::loadProgram(const std::string &filename){
 	cl::Program program;
 	try
 	{
-	    const std::pair<const char*, ::size_t> src = { kernelSource.c_str(), kernelSource.size() };
         cl::Program::Sources source;
-        source.push_back(src);
+        source.push_back(kernelSource);
 		program = cl::Program(context, source);
 	}
 	catch (cl::Error er)
@@ -317,8 +316,8 @@ void BoidModelGrid::createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel){
 	
 	//create the OpenCL only arrays
 	try{
-		cl_pos_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, pos_vbo[0], &err));
-		cl_vel_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, vel_vbo[0], &err));
+		cl_pos_vbos.push_back(clHelper->createFromGLBuffer(pos_vbo[0], &err));
+		cl_vel_vbos.push_back(clHelper->createFromGLBuffer(vel_vbo[0], &err));
 
 		cl_pos_out = cl::Buffer(context, CL_MEM_READ_WRITE, array_size_fp4, NULL, &err);
 		cl_velocities_out = cl::Buffer(context, CL_MEM_READ_WRITE, array_size_fp4, NULL, &err);

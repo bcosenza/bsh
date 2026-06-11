@@ -13,9 +13,7 @@ INCLUDES := \
 
 LIBS := -lGL -lGLEW -lglut -lOpenCL -lfreetype -lm
 
-# Binary goes 2 levels deep so ../../kernels/ and ../../shaders/ resolve
-# to this directory (where kernels/ and shaders/ subdirs live)
-BINDIR  := bin/linux
+BINDIR  := bin
 TARGET  := $(BINDIR)/boidSim
 OBJDIR  := $(BINDIR)/obj
 
@@ -54,6 +52,8 @@ all: $(TARGET)
 $(TARGET): $(OBJS)
 	@mkdir -p $(BINDIR)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LIBS)
+	@cp -r textures $(BINDIR)/textures
+	@cp FreeSans.otf FreeSans.ttf $(BINDIR)/
 
 $(OBJDIR)/%.o: %.cpp
 	@mkdir -p $(OBJDIR)

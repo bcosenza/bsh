@@ -10,11 +10,11 @@
 
 #include "stdafx.h"
 #include "CLHelper.h"
-#include "simParam.h"
+#include "SimParam.h"
 #include "vector_types.h"
 #include "vectorTypes.h"
-#include "shader.h"
-#include "renderable.h"
+#include "Shader.h"
+#include "Renderable.h"
 
 /*
 	Simulation parameters used in OpenCL kernels
@@ -163,6 +163,10 @@ private:
 
 	std::vector<cl::Memory> cl_vel_vbos;
 	std::vector<cl::Memory> cl_vel_vbos_out;
+
+	// plain CL buffers used when GL interop is unavailable
+	bool useGLInterop = false;
+	cl::Buffer cl_pos_plain, cl_pos_out_plain, cl_vel_plain, cl_vel_out_plain;
 
 	cl::Buffer cl_simParams;
 

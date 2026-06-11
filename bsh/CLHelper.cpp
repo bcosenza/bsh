@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include <GL/glx.h>
 #include "CLHelper.h"
 #include "gfx.h"
 
@@ -8,40 +9,90 @@
 CLHelper::CLHelper(LogFile* logF){
 	deviceUsed = 0;
 	logFile = logF;
+	glInteropEnabled = false;
 	log("Starting to create context");
 
-	/*get Available platforms and log information*/
 	err = cl::Platform::get(&platformList);
 	log(getPlatformInformation());
 	log("cl::Platform::get(): " + oclErrorString(err));
 
-	/*Try to chose GPU device from available platforms*/
-	err = platformList[0].getDevices(CL_DEVICE_TYPE_GPU, &devices);
+	if (platformList.empty()) {
+		log("ERROR: No OpenCL platforms found");
+		return;
+	}
+
+	GLXContext glxCtx = glXGetCurrentContext();
+	Display*   glxDpy = glXGetCurrentDisplay();
+	bool contextOk = false;
+
+	// Try each platform's GPU devices for GL interop (requires cl_khr_gl_sharing)
+	if (glxCtx != nullptr && glxDpy != nullptr) {
+		for (size_t pi = 0; pi < platformList.size() && !contextOk; pi++) {
+			std::vector<cl::Device> platDevices;
+			try {
+				platformList[pi].getDevices(CL_DEVICE_TYPE_GPU, &platDevices);
+			} catch (cl::Error) {}
+			if (platDevices.empty()) continue;
+
+			std::string exts;
+			platDevices[0].getInfo(CL_DEVICE_EXTENSIONS, &exts);
+			if (exts.find("cl_khr_gl_sharing") == std::string::npos) {
+				log("Platform " + std::to_string(pi) + " GPU has no cl_khr_gl_sharing, skipping");
+				continue;
+			}
+
+			cl_context_properties cprops[] = {
+				CL_GL_CONTEXT_KHR,  (cl_context_properties)glxCtx,
+				CL_GLX_DISPLAY_KHR, (cl_context_properties)glxDpy,
+				CL_CONTEXT_PLATFORM,(cl_context_properties)(platformList[pi])(),
+				0
+			};
+			try {
+				context = cl::Context(platDevices, cprops);
+				devices = platDevices;
+				glInteropEnabled = true;
+				contextOk = true;
+				log("GL interop context created on platform " + std::to_string(pi));
+			} catch (cl::Error er) {
+				log("GL interop failed on platform " + std::to_string(pi) + ": " +
+				    std::string(er.what()) + oclErrorString(er.err()));
+			}
+		}
+	} else {
+		log("GLX context not available, skipping GL interop");
+	}
+
+	// Fall back to platform 0, best available device, no GL interop
+	if (!contextOk) {
+		try {
+			err = platformList[0].getDevices(CL_DEVICE_TYPE_GPU, &devices);
+		} catch (cl::Error) {}
+		if (devices.empty()) {
+			try {
+				err = platformList[0].getDevices(CL_DEVICE_TYPE_ALL, &devices);
+			} catch (cl::Error er) {
+				log("ERROR getting any OpenCL device: " + std::string(er.what()));
+			}
+		}
+		if (devices.empty()) {
+			log("ERROR: No OpenCL devices found");
+			return;
+		}
+		try {
+			context = cl::Context(devices);
+			log("OpenCL context (no GL interop) created");
+			contextOk = true;
+		} catch (cl::Error er) {
+			log("ERROR creating OpenCL context: " + std::string(er.what()) + oclErrorString(er.err()));
+			return;
+		}
+	}
+
 	log(getDeviceInformation());
 	log("getDevices: " + oclErrorString(err));
 
-	int t = devices.front().getInfo<CL_DEVICE_TYPE>();
-	log("type: device: %d CL_DEVICE_TYPE_GPU: %d \n" + t + CL_DEVICE_TYPE_GPU);
-
-	cl_context_properties cprops[] =
-	{
-		CL_GL_CONTEXT_KHR, (cl_context_properties)wglGetCurrentContext(),
-		CL_WGL_HDC_KHR, (cl_context_properties)wglGetCurrentDC(),
-		CL_CONTEXT_PLATFORM, (cl_context_properties)(platformList[0])(),
-		0
-	};
-
 	try{
-		context = cl::Context(CL_DEVICE_TYPE_GPU, cprops);
-		log("cl context succesfully created");
-	}
-	catch (cl::Error er) {
-		log("ERROR: " + std::string(er.what()) + oclErrorString(er.err()));
-	}
-
-	try{
-		//queue = cl::CommandQueue(context, devices[deviceUsed], CL_QUEUE_PROFILING_ENABLE, &err);
-		queue = cl::CommandQueue(context, devices[deviceUsed], NULL, &err);
+		queue = cl::CommandQueue(context, devices[deviceUsed], CL_QUEUE_PROFILING_ENABLE, &err);
 		log("cl command queue succesfully created");
 	}
 	catch (cl::Error er) {
@@ -87,6 +138,55 @@ GLuint CLHelper::createVBO(const void* data, size_t dataSize, GLenum target, GLe
 	*/
 
 	return id;
+}
+
+cl::Memory CLHelper::createFromGLBuffer(GLuint vbo, cl_int* errRet){
+	if (glInteropEnabled)
+		return cl::BufferGL(context, CL_MEM_READ_WRITE, vbo, errRet);
+
+	// No interop: create a plain CL buffer initialized from the VBO contents
+	// and remember which VBO it shadows so releaseGLObjects() can sync back.
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	GLint bufferSize = 0;
+	glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &bufferSize);
+
+	std::vector<char> data(bufferSize);
+	glGetBufferSubData(GL_ARRAY_BUFFER, 0, bufferSize, data.data());
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+	cl::Buffer buffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, (size_t)bufferSize, data.data(), errRet);
+	shadowedVBO[buffer()] = std::make_pair(vbo, (size_t)bufferSize);
+	return buffer;
+}
+
+cl_int CLHelper::acquireGLObjects(cl::CommandQueue& queue, std::vector<cl::Memory>* objects, cl::Event* event){
+	if (glInteropEnabled)
+		return queue.enqueueAcquireGLObjects(objects, NULL, event);
+	// No interop: GL never writes to these VBOs, so the CL buffers are already current.
+	return CL_SUCCESS;
+}
+
+cl_int CLHelper::releaseGLObjects(cl::CommandQueue& queue, std::vector<cl::Memory>* objects, cl::Event* event){
+	if (glInteropEnabled)
+		return queue.enqueueReleaseGLObjects(objects, NULL, event);
+
+	// No interop: copy the CL buffer contents back into the shadowed VBOs for rendering
+	cl_int result = CL_SUCCESS;
+	for (size_t i = 0; i < objects->size(); i++){
+		std::map<cl_mem, std::pair<GLuint, size_t> >::iterator it = shadowedVBO.find((*objects)[i]());
+		if (it == shadowedVBO.end()) continue;
+
+		GLuint vbo = it->second.first;
+		size_t size = it->second.second;
+		std::vector<char> data(size);
+		// use the C API: wrapping the raw cl_mem in a cl::Buffer would take
+		// ownership and release it on destruction
+		result = clEnqueueReadBuffer(queue(), (*objects)[i](), CL_TRUE, 0, size, data.data(), 0, NULL, NULL);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo);
+		glBufferSubData(GL_ARRAY_BUFFER, 0, size, data.data());
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+	}
+	return result;
 }
 
 std::string CLHelper::getPlatformInformation(){

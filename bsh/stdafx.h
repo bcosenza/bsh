@@ -36,6 +36,6 @@
 #include <gtc/type_ptr.hpp>
 #include <gtx/rotate_vector.hpp>
 
-const std::string kernel_path = "../../kernels/"; 
-const std::string shader_path = "../../shaders/";
+const std::string kernel_path = "../kernels/";
+const std::string shader_path = "../shaders/";
 

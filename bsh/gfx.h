@@ -2,10 +2,10 @@
 #define _GFX_H_
 
 #include "stdafx.h"
-#include "shader.h"
-#include "worldBox.h"
-#include "simulation.h"
-#include "overlayText.h"
+#include "Shader.h"
+#include "WorldBox.h"
+#include "Simulation.h"
+#include "OverlayText.h"
 
 /* 
   Display class for the simulation (singleton usage).

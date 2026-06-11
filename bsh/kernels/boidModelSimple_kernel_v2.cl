@@ -50,6 +50,9 @@ int4 getGridPos(
 	 gridPos.x = (int) floor((pos.x - params->worldOrigin.x)/params->cellSize.x);
 	 gridPos.y = (int) floor((pos.y - params->worldOrigin.y)/params->cellSize.y);
 	 gridPos.z = (int) floor((pos.z - params->worldOrigin.z)/params->cellSize.z);
+	 gridPos.x = clamp(gridPos.x, 0, (int)params->gridSize.x - 1);
+	 gridPos.y = clamp(gridPos.y, 0, (int)params->gridSize.y - 1);
+	 gridPos.z = clamp(gridPos.z, 0, (int)params->gridSize.z - 1);
 	 return gridPos;
 }
 

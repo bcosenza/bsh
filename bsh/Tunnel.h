@@ -9,8 +9,8 @@
 #define _TUNNEL_H_
 
 #include "stdafx.h"
-#include "renderable.h"
-#include "shader.h"
+#include "Renderable.h"
+#include "Shader.h"
 #include "vectorTypes.h"
 
 /* 

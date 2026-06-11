@@ -9,8 +9,8 @@
 #define _WORLDGROUND_H_
 
 #include "stdafx.h"
-#include "renderable.h"
-#include "shader.h"
+#include "Renderable.h"
+#include "Shader.h"
 
 /*
 	Worldground is a renderable plane used to create a better visibility for the 2D versions of the boid simulation.

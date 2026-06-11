@@ -9,8 +9,8 @@
 #define _WORLDBOX_H_
 
 #include "stdafx.h"
-#include "renderable.h"
-#include "shader.h"
+#include "Renderable.h"
+#include "Shader.h"
 
 /* 
 	Worldbox is renderable a cube which outlines the space for the model. 

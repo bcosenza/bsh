@@ -1,9 +1,10 @@
 // Linux entry point replacing the Windows WinMain in main.cpp
 #include "stdafx.h"
 #include "gfx.h"
-#include "simulation.h"
+#include "Simulation.h"
 
 int main(int argc, char* argv[]) {
-    Simulation::getInstance().start();
+    int model = (argc > 1) ? std::atoi(argv[1]) : BOID_SIMPLE;
+    Simulation::getInstance().start(model);
     return 0;
 }

@@ -1,11 +1,14 @@
 #include "stdafx.h"
 #include "logFile.h"
-#include "simParam.h"
+#include "SimParam.h"
+#include <sys/stat.h>
+#include <algorithm>
 
 LogFile::LogFile(std::string logFileName){
 	createLogDir();
-	fileName = std::string(LOG_PATH_WIN);
-	fileName += "\\" + logFileName + getTimeStamp(true) + ".txt";
+	std::string name = logFileName + getTimeStamp(true) + ".txt";
+	std::replace(name.begin(), name.end(), ' ', '_');
+	fileName = std::string(LOG_PATH_WIN) + "/" + name;
 
 	std::cout << "\n" << fileName.data() << std::endl;
 }
@@ -25,7 +28,7 @@ std::string LogFile::getTimeStamp(bool withoutColon){
 	time_t t = time(0);
 	struct tm t_struct;
 
-	localtime_s(&t_struct, &t);
+	localtime_r(&t, &t_struct);
 	if (withoutColon){
 		strftime(output, sizeof(output), "%Y-%m-%d %H%M", &t_struct);
 	}
@@ -37,7 +40,7 @@ std::string LogFile::getTimeStamp(bool withoutColon){
 
 bool LogFile::createLogDir(){
 
-	if (CreateDirectory(LOG_PATH_WIN, NULL)){
+	if (mkdir(LOG_PATH_WIN, 0755) == 0){
 		printf("Log directory created");
 	}
 	else {

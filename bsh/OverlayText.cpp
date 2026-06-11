@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "overlayText.h"
+#include "OverlayText.h"
 #include "gfx.h"
 
 OverlayText::OverlayText(){

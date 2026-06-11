@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "boidModel.h"
+#include "BoidModel.h"
 
 BoidModelSHObstacle::BoidModelSHObstacle(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, simParams_t* simP, std::vector<Vec4> cor, std::vector<unsigned int> start, std::vector<unsigned int> end, std::vector<Vec4> posObst) : BoidModel(clHlpr)
 {
@@ -26,7 +26,7 @@ BoidModelSHObstacle::BoidModelSHObstacle(CLHelper* clHlpr, std::vector<Vec4> pos
 	createBuffer(pos, vel, goal);
 	loadData(goal);
 
-	programBoid =    loadProgram(kernel_path + "BoidModelSHObstacle_kernel_v1.cl");
+	programBoid =    loadProgram(kernel_path + "boidModelSHObstacle_kernel_v1.cl");
 	programBitonic = loadProgram(kernel_path + "bitonic_sort.cl");
 
 	loadKernel();
@@ -68,10 +68,10 @@ void BoidModelSHObstacle::simulate(float dt){
 	glFinish();
 	// map OpenGL buffer object for writing from OpenCL
 	//this passes in the vector of VBO buffer objects (position and color)
-	err = queue.enqueueAcquireGLObjects(&cl_pos_vbos, NULL, &event);
-	err = queue.enqueueAcquireGLObjects(&cl_pos_vbos_out, NULL, &event);
-	err = queue.enqueueAcquireGLObjects(&cl_vel_vbos, NULL, &event);
-	err = queue.enqueueAcquireGLObjects(&cl_vel_vbos_out, NULL, &event);
+	err = clHelper->acquireGLObjects(queue, &cl_pos_vbos, &event);
+	err = clHelper->acquireGLObjects(queue, &cl_pos_vbos_out, &event);
+	err = clHelper->acquireGLObjects(queue, &cl_vel_vbos, &event);
+	err = clHelper->acquireGLObjects(queue, &cl_vel_vbos_out, &event);
 	queue.finish();
 
 	//Get grid hash value for every boid
@@ -325,10 +325,10 @@ void BoidModelSHObstacle::simulate(float dt){
 	*/
 
 	//Release the VBOs so OpenGL can play with them
-	err = queue.enqueueReleaseGLObjects(&cl_pos_vbos, NULL, &event);
-	err = queue.enqueueReleaseGLObjects(&cl_pos_vbos_out, NULL, &event);
-	err = queue.enqueueReleaseGLObjects(&cl_vel_vbos, NULL, &event);
-	err = queue.enqueueReleaseGLObjects(&cl_vel_vbos_out, NULL, &event);
+	err = clHelper->releaseGLObjects(queue, &cl_pos_vbos, &event);
+	err = clHelper->releaseGLObjects(queue, &cl_pos_vbos_out, &event);
+	err = clHelper->releaseGLObjects(queue, &cl_vel_vbos, &event);
+	err = clHelper->releaseGLObjects(queue, &cl_vel_vbos_out, &event);
 }
 
 GLuint BoidModelSHObstacle::getPosVBO(){
@@ -382,7 +382,7 @@ cl::Program BoidModelSHObstacle::loadProgram(const std::string &filename){
 	try
 	{
 	  cl::Program::Sources source;
-	  source.push_back({ kernelSource.c_str(), kernelSource.size() });
+	  source.push_back(kernelSource);
 	  program = cl::Program(context, source);
 	}
 	catch (cl::Error er)
@@ -443,11 +443,11 @@ void BoidModelSHObstacle::createBuffer(std::vector<Vec4> pos, std::vector<Vec4> 
 
 	createVboBindShader(pos, vel);
 	// create OpenCL buffer from GL VBO
-	cl_pos_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, pos_vbo[0], &err));
-	cl_pos_vbos_out.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, pos_vbo_out[0], &err));
+	cl_pos_vbos.push_back(clHelper->createFromGLBuffer(pos_vbo[0], &err));
+	cl_pos_vbos_out.push_back(clHelper->createFromGLBuffer(pos_vbo_out[0], &err));
 
-	cl_vel_vbos.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, vel_vbo[0], &err));
-	cl_vel_vbos_out.push_back(cl::BufferGL(context, CL_MEM_READ_WRITE, vel_vbo_out[0], &err));
+	cl_vel_vbos.push_back(clHelper->createFromGLBuffer(vel_vbo[0], &err));
+	cl_vel_vbos_out.push_back(clHelper->createFromGLBuffer(vel_vbo_out[0], &err));
 	//create the OpenCL only arrays
 	try
 	{

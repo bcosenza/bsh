@@ -1,10 +1,9 @@
 #include "stdafx.h"
-#include "shader_utils.h"
+#include "Shader_utils.h"
 
 char* file_read(const char* filename)
 {
-	FILE* in;
-	fopen_s(&in, filename, "rb");
+	FILE* in = fopen(filename, "rb");
 	if (in == NULL) return NULL;
 	int res_size = BUFSIZ;
 	char* res = (char*)malloc(res_size);

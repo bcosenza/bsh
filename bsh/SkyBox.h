@@ -8,9 +8,9 @@
 
 // Note: used tutorial from http://www.mbsoftworks.sk/index.php?page=tutorials&series=1&tutorial=13
 
-#include "shader.h"
-#include "simParam.h"
-#include "renderable.h"
+#include "Shader.h"
+#include "SimParam.h"
+#include "Renderable.h"
 
 class Skybox : public Renderable{
 public:

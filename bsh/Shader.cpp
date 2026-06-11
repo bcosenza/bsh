@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "shader.h"
+#include "Shader.h"
 
 #define GL_GEOMETRY_SHADER 0x8DD9
 

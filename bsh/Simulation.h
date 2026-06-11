@@ -11,16 +11,16 @@
 
 #include "stdafx.h"
 #include "vector_types.h"
-#include "clHelper.h"
+#include "CLHelper.h"
 #include "logFile.h"
-#include "simParam.h"
-#include "boidModel.h"
-#include "worldBox.h"
-#include "worldGround.h"
-#include "overlayText.h"
-#include "skyBox.h"
-#include "column.h"
-#include "tunnel.h"
+#include "SimParam.h"
+#include "BoidModel.h"
+#include "WorldBox.h"
+#include "WorldGround.h"
+#include "OverlayText.h"
+#include "SkyBox.h"
+#include "Column.h"
+#include "Tunnel.h"
 
 /*
 	Boid simulation controler. Handles interaction between view and model.
@@ -64,6 +64,8 @@ private:
 	float timeDiff;
 	//index of current active boid model
 	int currentModel;
+	//model to switch to on the first simulation step (set via command-line arg)
+	int pendingModel;
 	//index of initial placement of boids
 	int currentInitPlacement;
 
@@ -71,6 +73,8 @@ private:
 	void createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color);
 	//restart the simulation
 	void restart(int modelNum);
+	//set simParams and restart for a given model number
+	void switchToModel(int modelNum);
 	//create random float between minimum mn and maximum mx
 	float randFloat(float mn, float mx);
 
@@ -80,8 +84,8 @@ private:
 public:
 	//initialize simulation
 	void init();
-	//start simulation
-	void start();
+	//start simulation, optionally with a specific model number
+	void start(int initialModel = BOID_SIMPLE);
 	//do a simulation step
 	void simulationStep();
 	//return complete simulation time
