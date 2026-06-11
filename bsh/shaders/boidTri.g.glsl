@@ -10,16 +10,24 @@ out vec4 fColor;
 uniform mat4 m_transform;
 
 void main() {
-    fColor = gColor[0]; 
+    fColor = gColor[0];
 
-	float x = gVel[0].x;
-	float z = gVel[0].z;
-	float y = gVel[0].y;
+	// constant on-screen size, oriented along the (normalized) velocity
+	float bodyLength = 5.0f;
+	float halfWidth = 1.25f;
 
-	vec4 p = vec4(-z, 0.0f, x, 0.0f) / 6;
-	vec4 p2 = vec4(0.0f, -z, y, 0.0f) / 6;
+	vec3 v = gVel[0].xyz;
+	vec3 dir = v / max(length(v), 0.0001f);
 
-    gl_Position = m_transform * (gl_in[0].gl_Position + gVel[0]);
+	float x = dir.x;
+	float z = dir.z;
+	float y = dir.y;
+
+	vec4 nose = vec4(dir, 0.0f) * bodyLength;
+	vec4 p = vec4(-z, 0.0f, x, 0.0f) * halfWidth;
+	vec4 p2 = vec4(0.0f, -z, y, 0.0f) * halfWidth;
+
+    gl_Position = m_transform * (gl_in[0].gl_Position + nose);
     EmitVertex();
 
 	gl_Position = m_transform * (gl_in[0].gl_Position + p);
@@ -30,7 +38,7 @@ void main() {
 
     EndPrimitive();
 
-	gl_Position = m_transform * (gl_in[0].gl_Position + gVel[0]);
+	gl_Position = m_transform * (gl_in[0].gl_Position + nose);
     EmitVertex();
 
 	gl_Position = m_transform * (gl_in[0].gl_Position + p2);

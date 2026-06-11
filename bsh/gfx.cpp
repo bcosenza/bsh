@@ -98,27 +98,42 @@ void GFX::setCam(unsigned int camPos){
 	currentCamPos = camPos;
 
 	switch (camPos){
+	//3D presets: centered three-quarter view - horizontally centered, slightly
+	//elevated, pulled back just far enough to frame the whole world with the 60 deg fov
 	case CAMERA_PRESET_STANDARD:
-		camPosX = CELL_SIZE_X * GRID_SIZE_X / 8;
-		camPosY = CELL_SIZE_Y * GRID_SIZE_Y / 2;
-		camPosZ = -CELL_SIZE_Z * GRID_SIZE_Z / 2;
+		camPosX = CELL_SIZE_X * GRID_SIZE_X * 0.5f;
+		camPosY = CELL_SIZE_Y * GRID_SIZE_Y * 0.8f;
+		camPosZ = -CELL_SIZE_Z * GRID_SIZE_Z * 0.35f;
 
-		camCenterX = CELL_SIZE_X * GRID_SIZE_X / 2;
-		camCenterY = CELL_SIZE_Y * GRID_SIZE_Y / 2;
-		camCenterZ = CELL_SIZE_Z * GRID_SIZE_Z / 2;
+		camCenterX = CELL_SIZE_X * GRID_SIZE_X * 0.5f;
+		camCenterY = CELL_SIZE_Y * GRID_SIZE_Y * 0.45f;
+		camCenterZ = CELL_SIZE_Z * GRID_SIZE_Z * 0.5f;
 
 		eye = glm::vec3(camPosX, camPosY, camPosZ);
 		camCenter = glm::vec3(camCenterX, camCenterY, camCenterZ);
 		break;
 
 	case CAMERA_PRESET_SH:
-		camPosX = CELL_SIZE_X * GRID_SIZE_X_SH / 8;
-		camPosY = CELL_SIZE_Y * GRID_SIZE_Y_SH / 2;
-		camPosZ = -CELL_SIZE_Z * GRID_SIZE_Z_SH / 2;
+		camPosX = CELL_SIZE_X * GRID_SIZE_X_SH * 0.5f;
+		camPosY = CELL_SIZE_Y * GRID_SIZE_Y_SH * 0.8f;
+		camPosZ = -CELL_SIZE_Z * GRID_SIZE_Z_SH * 0.35f;
 
-		camCenterX = CELL_SIZE_X * GRID_SIZE_X_SH / 2;
-		camCenterY = CELL_SIZE_Y * GRID_SIZE_Y_SH / 2;
-		camCenterZ = CELL_SIZE_Z * GRID_SIZE_Z_SH / 2;
+		camCenterX = CELL_SIZE_X * GRID_SIZE_X_SH * 0.5f;
+		camCenterY = CELL_SIZE_Y * GRID_SIZE_Y_SH * 0.45f;
+		camCenterZ = CELL_SIZE_Z * GRID_SIZE_Z_SH * 0.5f;
+
+		eye = glm::vec3(camPosX, camPosY, camPosZ);
+		camCenter = glm::vec3(camCenterX, camCenterY, camCenterZ);
+		break;
+
+	case CAMERA_PRESET_SH_SMALL:
+		camPosX = CELL_SIZE_X * GRID_SIZE_X_SH_OBSTACLE * 0.5f;
+		camPosY = CELL_SIZE_Y * GRID_SIZE_Y_SH_OBSTACLE * 0.8f;
+		camPosZ = -CELL_SIZE_Z * GRID_SIZE_Z_SH_OBSTACLE * 0.35f;
+
+		camCenterX = CELL_SIZE_X * GRID_SIZE_X_SH_OBSTACLE * 0.5f;
+		camCenterY = CELL_SIZE_Y * GRID_SIZE_Y_SH_OBSTACLE * 0.45f;
+		camCenterZ = CELL_SIZE_Z * GRID_SIZE_Z_SH_OBSTACLE * 0.5f;
 
 		eye = glm::vec3(camPosX, camPosY, camPosZ);
 		camCenter = glm::vec3(camCenterX, camCenterY, camCenterZ);
@@ -126,7 +141,7 @@ void GFX::setCam(unsigned int camPos){
 
 	case CAMERA_PRESET_2D:
 		camPosX = CELL_SIZE_X * GRID_SIZE_X_SH_2D / 2;
-		camPosY = CELL_SIZE_Y * GRID_SIZE_Y_SH_2D * 100;
+		camPosY = CELL_SIZE_Y * GRID_SIZE_Y_SH_2D * 90;	//plane fits the 60 deg fov from ~1300 up
 		camPosZ = CELL_SIZE_Z * GRID_SIZE_Z_SH_2D / 2;
 
 		camCenterX = CELL_SIZE_X * GRID_SIZE_X_SH_2D / 2;

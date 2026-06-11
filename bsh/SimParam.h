@@ -25,7 +25,7 @@
 #define BOID_POINT_SIZE 1.4f
 
 //color for boids
-#define BOID_COLOR Vec4(1.0, 1.0, 1.0, 1.0)
+#define BOID_COLOR Vec4(1.0, 0.0, 0.0, 1.0)
 
 //color for world box
 #define WORLD_BOX_COLOR Vec4(1.0, 1.0, 1.0, 1.0)
@@ -200,9 +200,11 @@
 #define CAMERA_PRESET_SH 1
 #define CAMERA_PRESET_2D 2
 #define CAMERA_PRESET_2D_FAR 3
+//camera for the small (16 cell) SH worlds: way finding, obstacle, tunnel scenes
+#define CAMERA_PRESET_SH_SMALL 4
 
 //used to iterate over the cam positions - must be size of available camera presets
-#define CAMERA_PRESET_SIZE 4
+#define CAMERA_PRESET_SIZE 5
 
 //integer values for the overlay display 
 #define DISPLAY_NONE 0

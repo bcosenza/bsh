@@ -41,7 +41,7 @@ Simulation::Simulation() {
 	worldBox = new WorldBox(simParams.gridSize.x, TRUE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
 	worldGround = new WorldGround(FALSE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
 	overlayText = new OverlayText();
-	skybox = new Skybox("", "textures/posx.tga", "textures/negx.tga", "textures/negz.tga", "textures/posz.tga", "textures/posy.tga", "textures/negy.tga");
+	skybox = new Skybox("", "textures/posx.tga", "textures/negx.tga", "textures/negz.tga", "textures/posz.tga", "textures/negy.tga", "textures/posy.tga");
 
 	column1 = new Column(false, simParams.cellSize.x, simParams.cellSize.y, simParams.cellSize.z, 8, 0, 6, 10);
 	column2 = new Column(false, simParams.cellSize.x, simParams.cellSize.y, simParams.cellSize.z, 8, 0, 9, 10);
@@ -371,7 +371,7 @@ void Simulation::switchToModel(int modelNum){
 		simParams.numCells = GRID_SIZE_X_SH_WAY1 * GRID_SIZE_Y_SH_WAY1 * GRID_SIZE_Z_SH_WAY1;
 		simParams.wPath = WEIGHT_GOAL_SH_WAY1;
 		restart(currentModel);
-		GFX::getInstance().setCam(CAMERA_PRESET_SH);
+		GFX::getInstance().setCam(CAMERA_PRESET_SH_SMALL);
 		break;
 	case BOID_SH_WAY2:
 		simParams.numBodies = NUM_BOIDS_SIMPLE;
@@ -385,7 +385,7 @@ void Simulation::switchToModel(int modelNum){
 		simParams.numCells = GRID_SIZE_X_SH_WAY1 * GRID_SIZE_Y_SH_WAY1 * GRID_SIZE_Z_SH_WAY1;
 		simParams.wPath = WEIGHT_GOAL_SH_WAY1;
 		restart(currentModel);
-		GFX::getInstance().setCam(CAMERA_PRESET_SH);
+		GFX::getInstance().setCam(CAMERA_PRESET_SH_SMALL);
 		break;
 	case BOID_SH_OBSTACLE:
 		simParams.numBodies = NUM_BOIDS_SIMPLE;
@@ -399,7 +399,7 @@ void Simulation::switchToModel(int modelNum){
 		simParams.numCells = GRID_SIZE_X_SH_OBSTACLE * GRID_SIZE_Y_SH_OBSTACLE * GRID_SIZE_Z_SH_OBSTACLE;
 		simParams.wPath = WEIGHT_GOAL_SH_OBSTACLE;
 		restart(currentModel);
-		GFX::getInstance().setCam(CAMERA_PRESET_SH);
+		GFX::getInstance().setCam(CAMERA_PRESET_SH_SMALL);
 		break;
 	case BOID_SH_OBSTACLE_COMBINED:
 		simParams.numBodies = NUM_BOIDS_SIMPLE;
@@ -413,7 +413,7 @@ void Simulation::switchToModel(int modelNum){
 		simParams.numCells = GRID_SIZE_X_SH_OBSTACLE * GRID_SIZE_Y_SH_OBSTACLE * GRID_SIZE_Z_SH_OBSTACLE;
 		simParams.wPath = WEIGHT_GOAL_SH_OBSTACLE;
 		restart(currentModel);
-		GFX::getInstance().setCam(CAMERA_PRESET_SH);
+		GFX::getInstance().setCam(CAMERA_PRESET_SH_SMALL);
 		break;
 	case BOID_SH_OBSTACLE_TUNNEL:
 		simParams.numBodies = NUM_BOIDS_SIMPLE;
@@ -427,7 +427,7 @@ void Simulation::switchToModel(int modelNum){
 		simParams.numCells = GRID_SIZE_X_SH_OBSTACLE * GRID_SIZE_Y_SH_OBSTACLE * GRID_SIZE_Z_SH_OBSTACLE;
 		simParams.wPath = WEIGHT_GOAL_SH_OBSTACLE;
 		restart(currentModel);
-		GFX::getInstance().setCam(CAMERA_PRESET_SH);
+		GFX::getInstance().setCam(CAMERA_PRESET_SH_SMALL);
 		break;
 	}
 }
