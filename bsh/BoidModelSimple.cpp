@@ -184,14 +184,13 @@ void BoidModelSimple::loadProgram(const std::string &filename){
 		throw(errno);
 	}
 
-	int pl;
-
-	pl = kernelSource.size();
+	cl::Program program;
 
 	try
 	{
-		cl::Program::Sources source = {kernelSource};
-		program = cl::Program(context, source);
+	  cl::Program::Sources source;
+	  source.push_back({ kernelSource.c_str(), kernelSource.size() });
+	  program = cl::Program(context, source);
 	}
 	catch (cl::Error er) {
 		log("ERROR: " + std::string(er.what()) + clHelper->oclErrorString(er.err()));

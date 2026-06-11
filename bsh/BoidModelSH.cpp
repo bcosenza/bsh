@@ -366,7 +366,8 @@ cl::Program BoidModelSH::loadProgram(const std::string &filename){
 
 	try
 	{
-		cl::Program::Sources source = {kernelSource};
+		cl::Program::Sources source;
+		source.push_back({ kernelSource.c_str(), kernelSource.size() });
 		program = cl::Program(context, source);
 	}
 	catch (cl::Error er)

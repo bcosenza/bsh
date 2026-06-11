@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "boidModel.h"
+#include <utility>
 
 BoidModelGrid::BoidModelGrid(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP) : BoidModel(clHlpr)
 {
@@ -257,14 +258,12 @@ cl::Program BoidModelGrid::loadProgram(const std::string &filename){
 		throw(errno);
 	}
 
-	size_t pl;
 	cl::Program program;
-
-	pl = kernelSource.size();
-
 	try
 	{
-		cl::Program::Sources source = {kernelSource};
+	    const std::pair<const char*, ::size_t> src = { kernelSource.c_str(), kernelSource.size() };
+        cl::Program::Sources source;
+        source.push_back(src);
 		program = cl::Program(context, source);
 	}
 	catch (cl::Error er)

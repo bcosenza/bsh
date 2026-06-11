@@ -366,15 +366,13 @@ cl::Program BoidModelSH_2D::loadProgram(const std::string &filename){
 		throw(errno);
 	}
 
-	int pl;
 	cl::Program program;
-
-	pl = kernelSource.size();
 
 	try
 	{
-		cl::Program::Sources source = {kernelSource};
-		program = cl::Program(context, source);
+	  cl::Program::Sources source;
+	  source.push_back({ kernelSource.c_str(), kernelSource.size() });
+	  program = cl::Program(context, source);
 	}
 	catch (cl::Error er)
 	{

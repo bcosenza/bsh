@@ -40,7 +40,8 @@ CLHelper::CLHelper(LogFile* logF){
 	}
 
 	try{
-		queue = cl::CommandQueue(context, devices[deviceUsed], CL_QUEUE_PROFILING_ENABLE, &err);
+		//queue = cl::CommandQueue(context, devices[deviceUsed], CL_QUEUE_PROFILING_ENABLE, &err);
+		queue = cl::CommandQueue(context, devices[deviceUsed], NULL, &err);
 		log("cl command queue succesfully created");
 	}
 	catch (cl::Error er) {
