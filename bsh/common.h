@@ -5,8 +5,14 @@
 // license terms please see the LICENSE file distributed with this
 // source code.
 
-
 #pragma once
+
+// Platform compatibility: on Linux this provides the Windows-isms the code
+// uses (TRUE/FALSE, GetTickCount64) and pins the OpenCL C++ bindings version;
+// on Windows the equivalents come from <windows.h> via GL/glew.h.
+#ifndef _WIN32
+#include "linux_compat.h"
+#endif
 
 #define __CL_ENABLE_EXCEPTIONS
 
@@ -20,9 +26,7 @@
 #include <sstream>
 #include <vector>
 
-
 //OpenGL include
-//#include <GL/gl.h> // for gemotry shaders
 #include <GL/glew.h>
 #include <GL/freeglut.h>
 
@@ -38,4 +42,3 @@
 
 const std::string kernel_path = "../kernels/";
 const std::string shader_path = "../shaders/";
-

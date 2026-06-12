@@ -1,5 +1,5 @@
 // Linux entry point replacing the Windows WinMain in main.cpp
-#include "stdafx.h"
+#include "common.h"
 #include "gfx.h"
 #include "Simulation.h"
 

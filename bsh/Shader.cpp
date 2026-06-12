@@ -1,4 +1,4 @@
-#include "stdafx.h"
+#include "common.h"
 #include "Shader.h"
 
 #define GL_GEOMETRY_SHADER 0x8DD9

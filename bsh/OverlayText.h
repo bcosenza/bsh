@@ -8,7 +8,7 @@
 #ifndef _OVERLAYTEXT_H_
 #define _OVERLAYTEXT_H_
 
-#include "stdafx.h"
+#include "common.h"
 #include "Shader.h"
 #include "Renderable.h"
 #include "vectorTypes.h"

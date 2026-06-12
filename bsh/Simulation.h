@@ -9,7 +9,7 @@
 #ifndef _SIMULATION_H_
 #define _SIMULATION_H_
 
-#include "stdafx.h"
+#include "common.h"
 #include "vector_types.h"
 #include "CLHelper.h"
 #include "logFile.h"

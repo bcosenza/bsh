@@ -8,7 +8,7 @@
 #ifndef _BOIDMODEL_H_
 #define _BOIDMODEL_H_
 
-#include "stdafx.h"
+#include "common.h"
 #include "CLHelper.h"
 #include "SimParam.h"
 #include "vector_types.h"

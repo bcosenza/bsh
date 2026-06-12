@@ -1,4 +1,4 @@
-#include "stdafx.h"
+#include "common.h"
 #include "Tunnel.h"
 #include "SimParam.h"
 #include "vectorTypes.h"

@@ -8,7 +8,7 @@
 #ifndef _CLHELPER_H_
 #define _CLHELPER_H_
 
-#include "stdafx.h"
+#include "common.h"
 #include "logFile.h"
 #include <map>
 #include <utility>

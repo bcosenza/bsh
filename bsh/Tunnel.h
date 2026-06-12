@@ -8,7 +8,7 @@
 #ifndef _TUNNEL_H_
 #define _TUNNEL_H_
 
-#include "stdafx.h"
+#include "common.h"
 #include "Renderable.h"
 #include "Shader.h"
 #include "vectorTypes.h"

@@ -7,7 +7,7 @@
 
 #ifndef _CREATE_SHADER_H
 #define _CREATE_SHADER_H
-#include "stdafx.h"
+#include "common.h"
 
 char* file_read(const char* filename);
 void print_log(GLuint object);

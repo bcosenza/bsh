@@ -9,7 +9,7 @@
 #ifndef _RENDERABLE_H_
 #define _RENDERABLE_H_
 
-#include "stdafx.h"
+#include "common.h"
 
 class Shader;
 

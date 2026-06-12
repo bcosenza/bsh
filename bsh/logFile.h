@@ -8,7 +8,7 @@
 #ifndef _LOGFILE_H_
 #define _LOGFILE_H_
 
-#include "stdafx.h"
+#include "common.h"
 
 /* Simple logger. Logfile path is set in simParam.h */
 class LogFile

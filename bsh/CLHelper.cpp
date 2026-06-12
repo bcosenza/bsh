@@ -1,4 +1,4 @@
-#include "stdafx.h"
+#include "common.h"
 #include <GL/glx.h>
 #include "CLHelper.h"
 #include "gfx.h"

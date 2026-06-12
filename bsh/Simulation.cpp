@@ -1,4 +1,4 @@
-#include "stdafx.h"
+#include "common.h"
 #include "Simulation.h"
 #include "vectorTypes.h"
 #include "gfx.h"

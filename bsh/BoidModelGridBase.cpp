@@ -5,7 +5,7 @@
 // license terms please see the LICENSE file distributed with this
 // source code.
 
-#include "stdafx.h"
+#include "common.h"
 #include "BoidModel.h"
 
 BoidModelGridBase::BoidModelGridBase(CLHelper* clHlpr, simParams_t* simP, const char* name, bool dblBuffered)

@@ -8,7 +8,7 @@
 #ifndef _COLUMN_H_
 #define _COLUMN_H_
 
-#include "stdafx.h"
+#include "common.h"
 #include "Renderable.h"
 #include "Shader.h"
 #include "vectorTypes.h"

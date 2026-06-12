@@ -1,4 +1,4 @@
-#include "stdafx.h"
+#include "common.h"
 #include "BoidModel.h"
 
 BoidModelSHWay1::BoidModelSHWay1(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel,

@@ -1,4 +1,4 @@
-#include "stdafx.h"
+#include "common.h"
 #include "BoidModel.h"
 
 BoidModelSHCombined::BoidModelSHCombined(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel,

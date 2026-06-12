@@ -1,4 +1,4 @@
-#include "stdafx.h"
+#include "common.h"
 #include "Shader_utils.h"
 
 char* file_read(const char* filename)

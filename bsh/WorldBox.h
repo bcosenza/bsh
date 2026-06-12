@@ -8,7 +8,7 @@
 #ifndef _WORLDBOX_H_
 #define _WORLDBOX_H_
 
-#include "stdafx.h"
+#include "common.h"
 #include "Renderable.h"
 #include "Shader.h"
 

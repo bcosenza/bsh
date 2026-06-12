@@ -8,7 +8,7 @@
 #ifndef _WORLDGROUND_H_
 #define _WORLDGROUND_H_
 
-#include "stdafx.h"
+#include "common.h"
 #include "Renderable.h"
 #include "Shader.h"
 

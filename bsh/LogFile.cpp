@@ -1,4 +1,4 @@
-#include "stdafx.h"
+#include "common.h"
 #include "logFile.h"
 #include "SimParam.h"
 #include <sys/stat.h>

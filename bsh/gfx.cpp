@@ -1,4 +1,4 @@
-#include "stdafx.h"
+#include "common.h"
 #include "gfx.h"
 
 #define GL_PROGRAM_POINT_SIZE 0x8642

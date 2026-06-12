@@ -1,7 +1,7 @@
 #ifndef _GFX_H_
 #define _GFX_H_
 
-#include "stdafx.h"
+#include "common.h"
 #include "Shader.h"
 #include "WorldBox.h"
 #include "Simulation.h"

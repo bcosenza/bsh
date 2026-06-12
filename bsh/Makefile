@@ -1,6 +1,5 @@
 CXX      := g++
-CXXFLAGS := -std=c++11 -O2 -Wall -Wno-deprecated-declarations \
-            -include compat/linux_compat.h
+CXXFLAGS := -std=c++11 -O2 -Wall -Wno-deprecated-declarations
 
 # GLM is bundled at lib/include/glm/glm/ and included as <glm.hpp>
 # compat/ provides a cl.hpp shim over the modern opencl.hpp (cl.hpp was removed in OpenCL 2.x)
@@ -19,7 +18,6 @@ OBJDIR  := $(BINDIR)/obj
 
 SRCS := \
     main_linux.cpp \
-    stdafx.cpp \
     Simulation.cpp \
     gfx.cpp \
     CLHelper.cpp \

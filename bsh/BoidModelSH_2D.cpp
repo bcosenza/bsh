@@ -1,4 +1,4 @@
-#include "stdafx.h"
+#include "common.h"
 #include "BoidModel.h"
 
 //place all boids on the fixed Y plane of the 2D world
