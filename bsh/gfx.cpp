@@ -8,7 +8,8 @@ GFX* GFX::pInstance = NULL;
 GFX::GFX(){
 	aspectRatio = (float)windowWidth / (float)windowHeight;
 
-	projection = glm::perspective(fov, aspectRatio, nearClip, farClip);
+	//fov is in degrees; GLM >= 0.9.6 expects radians
+	projection = glm::perspective(glm::radians(fov), aspectRatio, nearClip, farClip);
 	model =  glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0));
 
 	setCam(CAMERA_PRESET_STANDARD);
@@ -369,7 +370,7 @@ void GFX::windowResizeHandler(int w, int h){
 	
 	aspectRatio = (float)windowWidth / (float)windowHeight;
 
-	projection = glm::perspective(fov, aspectRatio, nearClip, farClip);
+	projection = glm::perspective(glm::radians(fov), aspectRatio, nearClip, farClip);
 	glViewport(0, 0, windowWidth, windowHeight);
 }
 
