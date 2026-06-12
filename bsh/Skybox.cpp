@@ -48,7 +48,7 @@ Skybox::Skybox(const char* directory, const char* sFront, const char* sBack, con
 		SKYBOX_SIZE, -SKYBOX_SIZE, SKYBOX_SIZE
 	};
 
-	visible = true;
+	visible = false;
 
 	shader = new Shader("skybox.v.glsl", "skybox.f.glsl");
 

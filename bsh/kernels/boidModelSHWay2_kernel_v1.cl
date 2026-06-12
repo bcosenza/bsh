@@ -4,53 +4,7 @@
 */
 #define FACTOR_NO 0.0001f
 #define FACTOR .006f
-#define boundingBoxFactor 2
 
-typedef struct{
-    float x;
-    float y;
-    float z;
-} Float3;
-
-typedef struct{
-    uint x;
-    uint y;
-    uint z;
-}Uint3;
-
-typedef struct{
-    int x;
-    int y;
-    int z;
-}Int3;
-
-typedef struct{
-    Uint3 gridSize;
-    uint numCells;
-    Float3 worldOrigin;
-    Float3 cellSize;
-
-    uint numBodies;
-	uint localSize;
-
-	float wSeparation;
-	float wAlignment;
-	float wCohesion;
-	float wOwn;
-	float wPath;
-
-	float maxVel;
-	float maxVelCor
-} simParams_t;
-
-__kernel void memSet(
-    __global uint *d_Data,
-    uint val,
-    uint N
-){
-    if(get_global_id(0) < N)
-        d_Data[get_global_id(0)] = val;
-}
 
 /*check if boid is in border cell and apply force*/
 float4 checkAndCorrectBoundaries(   uint cell, __constant simParams_t* params)
@@ -105,34 +59,6 @@ float4 checkAndCorrectBoundariesWithPos(int4 gridPos, __constant simParams_t* si
 	return velCor;
 }
 
-
-int4 getGridPos(
-	float4 pos, 
-	__constant simParams_t* params)
-{
-	 int4 gridPos;
-	 gridPos.x = (int) floor((pos.x - params->worldOrigin.x)/params->cellSize.x);
-	 gridPos.y = (int) floor((pos.y - params->worldOrigin.y)/params->cellSize.y);
-	 gridPos.z = (int) floor((pos.z - params->worldOrigin.z)/params->cellSize.z);
-	 gridPos.x = clamp(gridPos.x, 0, (int)params->gridSize.x - 1);
-	 gridPos.y = clamp(gridPos.y, 0, (int)params->gridSize.y - 1);
-	 gridPos.z = clamp(gridPos.z, 0, (int)params->gridSize.z - 1);
-	 return gridPos;
-}
-
-__kernel void getGridHash(
-	__global float4* posUnsorted, 
-	__global int* gridHashUnsorted, 
-	__global int* gridIndexUnsorted, 
-	__constant simParams_t* params)
-{
-	int id = get_global_id(0);
-	float4 pos = posUnsorted[id];
-	int4 gridPos = getGridPos(pos, params);
-
-	gridHashUnsorted[id] = gridPos.x + (params->gridSize.x) * gridPos.z + (params->gridSize.z) * (params->gridSize.x) * gridPos.y;
-	gridIndexUnsorted[id] = id;
-}
 
 __kernel void findGridEdgeAndReorder(
     __global uint   *cellStart,     //output: cell start index
@@ -199,7 +125,6 @@ __kernel void findGridEdgeAndReorder(
 		reorderedColor[index] = color;
 	}  
 }
-
 
 
 __kernel void simulate(
@@ -273,7 +198,7 @@ __kernel void simulate(
 						float dotP = dot(-velOwn, distance);
 						float angle = dotP / (fast_length(velOwn) * fast_length(distance));		//calculate acute angle between self and other boid
 
-						if (dotP < 0.f || fabs(degrees(acos(angle))) > 45){	//check if other boid is visible, dot product indicates that angle is > 90°
+						if (dotP < 0.f || fabs(degrees(acos(angle))) > 45){	//check if other boid is visible, dot product indicates that angle is > 90ï¿½
 
 							flockMatesVisible++;							//increase counter how many boids are visible
 							perceivedPos += p;				//add other boids position to perceived center of mass
@@ -576,212 +501,3 @@ __kernel void dontUseSH(__global float4* vel,
 	}
 	
 }
-
-
-/*kernel to use the SH calculations on boids*/
-/*
-__kernel void useSH(__global float4* vel,
-	__global float4* vel_out,
-	__global uint* startIndex,
-	__global uint* endIndex,
-	__global float8* sh_evalX,
-	__global float8* sh_evalY,
-	__global float8* sh_evalZ,
-	__constant simParams_t* simParams,
-	__global float4* pos,
-	__global float4* pos_out,
-	__local float8* sh_eval_localX,
-	__local float8* sh_eval_localY,
-	__local float8* sh_eval_localZ,
-	__global float* coef0X,
-	__global float* coef0Y,
-	__global float* coef0Z,
-	__local float* sh_c0_localX,
-	__local float* sh_c0_localY,
-	__local float* sh_c0_localZ,
-	float dt)
-{
-	uint id = get_local_id(0);
-	uint lSize = get_local_size(0);
-	uint cell = get_group_id(0);
-
-	uint start = startIndex[cell];
-	uint end = endIndex[cell];
-
-	uint range = end - start;
-
-	if (range == 0)
-		return;
-
-	float4 velCor = checkAndCorrectBoundaries(cell, simParams);
-
-
-	uint plane = simParams->gridSize.x * simParams->gridSize.z;
-
-	float8 sumSHX;
-	float8 sumSHY;
-	float8 sumSHZ;
-
-	float4 velOwn;
-	float4 posOwn = pos[start];
-	posOwn.w = 0.0f;
-
-	sh_eval_localX[id] = (float8)(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-	sh_eval_localY[id] = (float8)(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-	sh_eval_localZ[id] = (float8)(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-	sh_c0_localX[id] = 0.0f;
-	sh_c0_localY[id] = 0.0f;
-	sh_c0_localZ[id] = 0.0f;
-	barrier(CLK_LOCAL_MEM_FENCE);
-
-	for (uint i = id; i < (simParams->numCells - range); i += lSize){
-		uint index = (i + end) % simParams->numCells;
-
-		float4 p = pos[index];
-		float4 v = vel[index];
-		p.w = 0.0f;
-		v.w = 0.0f;
-
-		float4 distV = posOwn - p;
-		float dist = fast_distance(p, posOwn);//fabs(fast_length(distV));
-		float lenOther = fast_length(v);
-
-		float factor = 1.0f;
-		float dotP = dot(distV, v);
-		float angle = dotP / (dist * lenOther);
-
-		//if(45.f > degrees(acos(angle)))
-		//	factor = -.01f;
-
-		sh_eval_localX[id] += (factor / dist) * sh_evalX[index];
-		sh_eval_localY[id] += (factor / dist) * sh_evalY[index];
-		sh_eval_localZ[id] += (factor / dist) * sh_evalZ[index];
-		sh_c0_localX[id] += (factor / dist) * coef0X[index];
-		sh_c0_localY[id] += (factor / dist) * coef0Y[index];
-		sh_c0_localZ[id] += (factor / dist) * coef0Z[index];
-	}
-
-	uint k = lSize / 2;
-	while (id < k){
-		sh_eval_localX[id] += sh_eval_localX[id + k];
-		sh_eval_localY[id] += sh_eval_localY[id + k];
-		sh_eval_localZ[id] += sh_eval_localZ[id + k];
-		sh_c0_localX[id] += sh_c0_localX[id + k];
-		sh_c0_localY[id] += sh_c0_localY[id + k];
-		sh_c0_localZ[id] += sh_c0_localZ[id + k];
-		k = k / 2;
-	}
-	barrier(CLK_LOCAL_MEM_FENCE);
-
-	uint index = start + id;
-	while (index < end){
-		velOwn = vel[index];
-		posOwn = pos[index];
-		posOwn.w = 0.0f;
-		velOwn.w = 0.0f;
-
-		sumSHX = sh_eval_localX[0];
-		sumSHY = sh_eval_localY[0];
-		sumSHZ = sh_eval_localZ[0];
-
-
-		/*for(uint i = 1; i < (range - 1); i++){
-		uint index2 = start + (i + id) % range;
-		float4 p = pos[index2];
-		p.w = 0.0;
-		float dist = distance(p, posOwn);
-
-		sumSHX += (1.f / (1.f)) * sh_evalX[index];
-		sumSHY += (1.f / (1.f)) * sh_evalY[index];
-		sumSHZ += (1.f / (1.f)) * sh_evalZ[index];
-		}*//*
-
-		float8 SHSelf = SHEval3(normalize(velOwn));
-
-		float8 SHOtherX = sumSHX;
-		float8 SHOtherY = sumSHY;
-		float8 SHOtherZ = sumSHZ;
-
-		float sumAllSHX = sh_c0_localX[0] * 0.2820947917738781f;
-		float sumAllSHY = sh_c0_localY[0] * 0.2820947917738781f;
-		float sumAllSHZ = sh_c0_localZ[0] * 0.2820947917738781f;
-
-		sumAllSHX += SHSelf.s0 * SHOtherX.s0;
-		sumAllSHX += SHSelf.s1 * SHOtherX.s1;
-		sumAllSHX += SHSelf.s2 * SHOtherX.s2;
-		sumAllSHX += SHSelf.s3 * SHOtherX.s3 * 2;
-		sumAllSHX += SHSelf.s4 * SHOtherX.s4 * 2;
-		sumAllSHX += SHSelf.s5 * SHOtherX.s5 * 2;
-		sumAllSHX += SHSelf.s6 * SHOtherX.s6 * 2;
-		sumAllSHX += SHSelf.s7 * SHOtherX.s7 * 2;
-
-		sumAllSHY += SHSelf.s0 * SHOtherY.s0;
-		sumAllSHY += SHSelf.s1 * SHOtherY.s1;
-		sumAllSHY += SHSelf.s2 * SHOtherY.s2;
-		sumAllSHY += SHSelf.s3 * SHOtherY.s3 * 2;
-		sumAllSHY += SHSelf.s4 * SHOtherY.s4 * 2;
-		sumAllSHY += SHSelf.s5 * SHOtherY.s5 * 2;
-		sumAllSHY += SHSelf.s6 * SHOtherY.s6 * 2;
-		sumAllSHY += SHSelf.s7 * SHOtherY.s7 * 2;
-
-		sumAllSHZ += SHSelf.s0 * SHOtherZ.s0;
-		sumAllSHZ += SHSelf.s1 * SHOtherZ.s1;
-		sumAllSHZ += SHSelf.s2 * SHOtherZ.s2;
-		sumAllSHZ += SHSelf.s3 * SHOtherZ.s3 * 2;
-		sumAllSHZ += SHSelf.s4 * SHOtherZ.s4 * 2;
-		sumAllSHZ += SHSelf.s5 * SHOtherZ.s5 * 2;
-		sumAllSHZ += SHSelf.s6 * SHOtherZ.s6 * 2;
-		sumAllSHZ += SHSelf.s7 * SHOtherZ.s7 * 2;
-
-		float4 shCor = (float4)(sumAllSHX, sumAllSHY, sumAllSHZ, 0.0f);
-		float len = length(shCor);
-
-		if (len > simParams->maxVel){
-			shCor.x = (shCor.x / len) * simParams->maxVel;
-			shCor.y = (shCor.y / len) * simParams->maxVel;
-			shCor.z = (shCor.z / len) * simParams->maxVel;
-		}
-
-		len = length(velOwn);
-
-		if (len > simParams->maxVel){
-			velOwn.x = (velOwn.x / len) * simParams->maxVel;
-			velOwn.y = (velOwn.y / len) * simParams->maxVel;
-			velOwn.z = (velOwn.z / len) * simParams->maxVel;
-		}
-
-		float lenOwn = fast_length(shCor);
-		float lenOther = fast_length(velOwn);
-
-		float factor = 0.1f;
-		float dotP = dot(shCor, velOwn);
-		float angle = dotP / (lenOwn * lenOther);
-
-		if (25.f < degrees(acos(angle)))
-			factor = 1.05f;
-
-
-		velOwn += shCor * factor;//(1.f / (simParams->numBodies - range) );
-		velOwn.w = 0.0f;
-
-		//truncate velocity to max velocity
-		//velOwn = clamp(velOwn, -mVel, mVel);
-		//using the magnitude of the velocity is nicer than clamping it
-		len = length(velOwn);
-
-		if (len > simParams->maxVel){
-			velOwn.x = (velOwn.x / len) * simParams->maxVel;
-			velOwn.y = (velOwn.y / len) * simParams->maxVel;
-			velOwn.z = (velOwn.z / len) * simParams->maxVel;
-		}
-
-		//apply correction velocity dependend on boid cell position (border case)
-		velOwn += velCor;
-
-		vel_out[index] = velOwn;
-		pos_out[index] = pos[index] + velOwn * dt;
-
-		index += lSize;
-	}
-}
-*/

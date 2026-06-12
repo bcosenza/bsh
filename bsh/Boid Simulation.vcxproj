@@ -190,6 +190,7 @@
     <ClInclude Include="WorldGround.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="BoidModelGridBase.cpp" />
     <ClCompile Include="BoidModelGrid.cpp" />
     <ClCompile Include="BoidModelGrid_2D.cpp" />
     <ClCompile Include="BoidModelSH.cpp" />
@@ -217,10 +218,8 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="kernels\bitonic_sort.cl" />
-    <None Include="kernels\boidModelGrid_2D_kernel_v1.cl" />
+    <None Include="kernels\common.cl" />
     <None Include="kernels\boidModelGrid_2D_kernel_v2.cl" />
-    <None Include="kernels\boidModelGrid_kernel_v1.cl" />
-    <None Include="kernels\boidModelGrid_kernel_v2.cl" />
     <None Include="kernels\boidModelGrid_kernel_v3.cl" />
     <None Include="kernels\boidModelSHCombined_kernel_v1.cl" />
     <None Include="kernels\boidModelSHObstacleTunnel_kernel_v1.cl" />
@@ -229,10 +228,7 @@
     <None Include="kernels\boidModelSHWay2_kernel_v1.cl" />
     <None Include="kernels\boidModelSH_2D_kernel_v1.cl" />
     <None Include="kernels\boidModelSH_kernel_v1.cl" />
-    <None Include="kernels\boidModelSH_kernel_v2.cl" />
-    <None Include="kernels\boidModelSimple_kernel_v1.cl" />
     <None Include="kernels\boidModelSimple_kernel_v2.cl" />
-    <None Include="kernels\boidModelSimple_kernel_v3.cl" />
     <None Include="shaders\boid.f.glsl" />
     <None Include="shaders\boid.v.glsl" />
     <None Include="shaders\boidTri.f.glsl" />

@@ -26,7 +26,7 @@ typedef struct simParams_t{
 	float3 cellSize;			// size of cells
 
 	unsigned int numBodies;		// number of boids used in the simulation
-	unsigned int localSize;		
+	unsigned int localSize;
 
 	float wSeparation;			// weight of separation in the simulation
 	float wAlignment;			// weight of alignment in the simulation
@@ -34,7 +34,7 @@ typedef struct simParams_t{
 	float wOwn;					// weight of own velocity in simulation
 	float wPath;
 
-	float maxVel;				// maximum velocity 
+	float maxVel;				// maximum velocity
 	float maxVelCor;			// maximum correction velocity
 
 } simParams_t;
@@ -139,13 +139,13 @@ private:
 	// number of boids
 	int num;
 
-	// Pointer to simulation time discription strings 
+	// Pointer to simulation time discription strings
 	std::vector<const char*> simTimeDisc;
 
-	// Simulation time as string for overlay text 
+	// Simulation time as string for overlay text
 	std::string stringSimTime;
 
-	// Attributes used in the shader 
+	// Attributes used in the shader
 	std::vector<std::string> attribName;
 	Shader* shader;
 
@@ -174,17 +174,20 @@ private:
 };
 
 /*
-	Improvde boid model using the GPU. It sorts the boids by their position in cells.
-	The velocity and position buffer are reordered, according to the sorted index, for coalesced memory access.
+	Common host-side machinery shared by all grid based boid models:
+	shader/VBO setup, the CL buffers of the uniform grid, kernel loading,
+	the hash -> sort -> reorder pipeline, bitonic sort, per-stage profiling
+	and the Renderable plumbing. Subclasses provide the scene specific
+	kernels and the tail of simulate().
+
+	All entries of times[] are kept in microseconds.
 */
-class BoidModelGrid : public BoidModel
+class BoidModelGridBase : public BoidModel
 {
 public:
-	BoidModelGrid(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP);
-	~BoidModelGrid();
+	virtual ~BoidModelGridBase();
 
-	// override BoidModel
-	void simulate(float dt);
+	// BoidModel interface
 	GLuint getPosVBO();
 	GLuint getVelVBO();
 	GLuint getPosVAO();
@@ -192,1024 +195,319 @@ public:
 	long getSimulationTime();
 	std::vector<const char*> getSimTimeDescriptions();
 	void getFollowedBoid(unsigned int* boidIndex, Vec4 *pos, Vec4 *vel);
-	
-	// override Renderable
+
+	// Renderable interface
 	void render();
 	Shader* getShader();
 	void bindShader();
 	void unbindShader();
 
+protected:
+	/* doubleBuffered - true for models that reorder into a second VBO set and
+	   ping-pong between the two every frame */
+	BoidModelGridBase(CLHelper* clHlpr, simParams_t* simP, const char* modelName, bool doubleBuffered);
 
-private:
-	/* loads openCL program from file
-	filename - Name of file from which the program is loaded */
+	// ---- setup helpers (call order: createCommonBuffers, [createGoalBuffers,]
+	// ---- uploadSimParams, loadProgram(s), loadCommonKernels) ----
+
+	/* Compile an OpenCL program from a source file */
 	cl::Program loadProgram(const std::string &filename);
 
-	// load kernel from program file
-	void loadKernel();
+	/* Compile a boid kernel file with kernels/common.cl prepended, which
+	   provides the shared simParams_t/memSet/getGridHash declarations */
+	cl::Program loadBoidProgram(const std::string &filename);
 
-	/* create buffer
-	pos - vector of Vec4 with position data for boids */
-	void createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel);
+	/* Load the kernels every grid model uses from programBoid/programBitonic
+	   (getGridHash, findGridEdgeAndReorder, simulate, memSet, bitonic sort) */
+	void loadCommonKernels();
 
-	/* load data from host to device
-	vel - vector of Vec4 with velocity data for boids */
-	void loadData(std::vector<Vec4> vel);
+	/* Create the shader, the pos/vel VBO set(s) and the uniform grid CL buffers.
+	   color - per boid colors; pass an empty vector for a constant BOID_COLOR.
+	   reorderedColor - true to create CL-shared color VBOs which the model
+	   reorders every frame (goal seeking scenes with multiple groups). */
+	void createCommonBuffers(const std::vector<Vec4>& pos, const std::vector<Vec4>& vel,
+		const std::vector<Vec4>& color, bool reorderedColor);
 
-	/* bitonic sort for key-value pairs (NVIDIA implementation)
-	-d_DstKey Destination for output keys
-	-d_DstVal Destination for output value
-	-d_SrcKey Source key which is used for sorting
-	-d_SrcVal Source value which is sorted
-	-batch size
-	-arrayLength number of elements to be sorted
-	-dir sort direction (ascending or descending)*/
-	void bitonicSort(cl::Buffer d_DstKey, cl::Buffer d_DstVal, cl::Buffer d_SrcKey, cl::Buffer d_SrcVal, unsigned int batch, unsigned int arrayLength, unsigned int dir);
+	/* Create the goal double buffer and fill it with the initial goals */
+	void createGoalBuffers(const std::vector<Vec4>& goal);
 
-	// create the Vertex Buffer Object and
-	void createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel);
+	/* Upload simParams to the device */
+	void uploadSimParams();
 
-	static cl_uint factorRadix2(cl_uint& log2L, cl_uint L);
+	/* Add a row to the timing overlay; timesIndex selects the times[] slot */
+	void addTimingRow(const char* label, int timesIndex);
 
-	// index of VBO
-	GLuint pos_vbo[1];
-	GLuint vel_vbo[1];
-	// index of VAO
-	GLuint pos_vao[1];
+	// ---- per frame pipeline steps, called from the subclass' simulate() ----
+
+	/* Wait for GL and acquire all GL-shared buffers for CL */
+	void acquireGLBuffers();
+	/* Release all GL-shared buffers back to GL */
+	void releaseGLBuffers();
+
+	/* Compute the grid hash of every boid in posIn -> times[0] */
+	void runGridHash(const cl::Memory& posIn);
+
+	/* Reset the per-cell start/end indices */
+	void clearGridEdges();
+
+	/* Sort the grid hash -> times[1] */
+	void sortGridHash();
+
+	/* Enqueue findGridEdgeAndReorder -> times[2]. The pos/vel (and model
+	   specific goal/color) buffer arguments starting at index 2/3 and 6/7 must
+	   be set by the caller beforehand; the common arguments and the trailing
+	   local memory/boid count are set here. */
+	void runReorder();
+
+	/* Profiled execution time of an event in microseconds */
+	long eventTimeUs(cl::Event& e);
+
+	// in/out buffer selection for double buffered models
+	bool useInBuffers() const { return !doubleBuffered || counter; }
+
+	// ---- members ----
+	const char* modelName;
+	bool doubleBuffered;
+	// flipped at the start of every simulate() of a double buffered model
+	bool counter;
+
 	// number of boids
 	int num;
 
-	// vector of simulation time discription strings
-	std::vector<const char*> simTimeDisc;
-	// string with time of simulate kernel
-	std::string stringSimTime;
-	// string with time of calculate cell hash kernel
-	std::string stringHashTime;
-	// string with time of sorting (all bitonic sort/merge steps)
-	std::string stringSortTime;
-	// string with time for edge detection and memory reordering
-	std::string stringEdgeTime;
-	// array with times which cast into string for overlay text
-	long times[4];
+	GLuint pos_vbo[1], pos_vbo_out[1];
+	GLuint pos_vao[1], pos_vao_out[1];
+	GLuint vel_vbo[1], vel_vbo_out[1];
+	GLuint color_vbo[1], color_vbo_out[1];
+
+	Shader* shader;
 
 	cl::Context context;
 	cl::CommandQueue queue;
-	cl::Program programBoid;
-	cl::Program programBitonic;
 	std::vector<cl::Device> devices;
 
-	// kernel to calculate the grid hash value dependent on position of a boid
+	cl::Program programBoid;
+	cl::Program programBitonic;
+
 	cl::Kernel kernel_getGridHash;
-	/* kernel to find start and end index of cells and reorder velocity and position
-	of boids in memory */
 	cl::Kernel kernel_findGridEdgeAndReorder;
-	// simulation kernel
 	cl::Kernel kernel_simulate;
-	// bitonic sort kernels
+	cl::Kernel kernel_memSet;
 	cl::Kernel kernel_bitonicSortLocal;
 	cl::Kernel kernel_bitonicSortLocal1;
 	cl::Kernel kernel_bitonicMergeGlobal;
 	cl::Kernel kernel_bitonicMergeLocal;
-	/* kernel to set the start and end index of edges to 0
-	without this number of elemnts in cell is undefined */
-	cl::Kernel kernel_memSet;
 
 	cl::Event event;
 	cl::Event eventSim;
 
-	std::vector<cl::Memory> cl_pos_vbos;
-	std::vector<cl::Memory> cl_vel_vbos;
-	//
-	cl::Buffer cl_pos_out;
+	// boid buffers shared with OpenGL
+	std::vector<cl::Memory> cl_pos_vbos, cl_pos_vbos_out;
+	std::vector<cl::Memory> cl_vel_vbos, cl_vel_vbos_out;
+	std::vector<cl::Memory> cl_color_vbos, cl_color_vbos_out;
+
+	// goal double buffer (only when createGoalBuffers was called)
+	cl::Buffer cl_goal_in, cl_goal_out;
+
+	// uniform grid buffers
+	cl::Buffer cl_gridHash_unsorted, cl_gridHash_sorted;
+	cl::Buffer cl_gridIndex_unsorted, cl_gridIndex_sorted;
+	cl::Buffer cl_gridStartIndex, cl_gridEndIndex;
 	cl::Buffer cl_range;
-	cl::Buffer cl_velocities_out;
-	cl::Buffer cl_gridHash_unsorted;
-	cl::Buffer cl_gridHash_sorted;
-	cl::Buffer cl_gridIndex_unsorted;
-	cl::Buffer cl_gridIndex_sorted;
 	cl::Buffer cl_simParams;
-	cl::Buffer cl_gridStartIndex;
-	cl::Buffer cl_gridEndIndex;
+
+	// per stage execution times in microseconds
+	long times[8];
 
 	cl_int err;
-
-	std::vector<std::string> attribName;
-	Shader* shader;
-	// Note: logically shared with BitonicSort_b.cl!
-	// static const unsigned int LOCAL_SIZE_LIMIT = 512
-};
-
-/* Boid model with Spherical Harmonics long-range collision avoidance. Basically BoidModelGrid extended with SH. */
-class BoidModelSH : public BoidModel
-{
-public:
-	BoidModelSH(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP);
-	~BoidModelSH();
-
-	// override BoidModel
-	void simulate(float dt);
-	GLuint getPosVBO();
-	GLuint getVelVBO();
-	GLuint getPosVAO();
-	int getNumBoid();
-	long getSimulationTime();
-	std::vector<const char*> getSimTimeDescriptions();
-	void getFollowedBoid(unsigned int* boidIndex, Vec4 *pos, Vec4 *vel);
-
-	// override Renderable
-	void render();
-	Shader* getShader();
-	void bindShader();
-	void unbindShader();
 
 private:
-	cl::Program loadProgram(const std::string &filename);
-	void loadKernel();
-	void createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel);
-	void loadData();
-	void bitonicSort(cl::Buffer d_DstKey, cl::Buffer d_DstVal, cl::Buffer d_SrcKey, cl::Buffer d_SrcVal, unsigned int batch, unsigned int arrayLength, unsigned int dir);
-	void createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel);
+	void bitonicSort(cl::Buffer d_DstKey, cl::Buffer d_DstVal, cl::Buffer d_SrcKey,
+		cl::Buffer d_SrcVal, unsigned int batch, unsigned int arrayLength, unsigned int dir);
+	cl_uint factorRadix2(cl_uint& log2L, cl_uint L);
 
-	static cl_uint factorRadix2(cl_uint& log2L, cl_uint L);
+	std::string readKernelFile(const std::string &filename);
+	cl::Program buildProgram(const std::string &kernelSource);
 
-	int helper = 0;
-	GLuint pos_vbo[1];
-	GLuint vel_vbo[1];
-	GLuint pos_vao[1];
-	
-	GLuint vel_vbo_out[1];
-	GLuint pos_vbo_out[1];
-	GLuint pos_vao_out[1];
-	int num;
+	/* create one VAO with pos/vel/color VBOs; out parameters receive the ids */
+	void createVboSet(const std::vector<Vec4>& pos, const std::vector<Vec4>& vel,
+		const std::vector<Vec4>& color, bool reorderedColor,
+		GLuint* vao, GLuint* posVbo, GLuint* velVbo, GLuint* colorVbo);
 
-	bool counter = false;
-
+	// rows of the timing overlay: label and times[] index
+	std::vector<std::pair<const char*, int> > timingRows;
+	std::vector<std::string> timingStrings;
 	std::vector<const char*> simTimeDisc;
-	std::string stringSimTime;
-	std::string stringHashTime;
-	std::string stringSortTime;
-	std::string stringEdgeTime;
-	// string of the spherical harmonics step
-	std::string stringSHTime;
-	// string of the reduction of the velocities
-	std::string stringSumTime;
-	long times[6];
-
-	cl::Context context;
-	cl::CommandQueue queue;
-	cl::Program programBoid;
-	cl::Program programBitonic;
-	std::vector<cl::Device> devices;
-
-	cl::Kernel kernel_getGridHash;
-	cl::Kernel kernel_getGridEdge;
-	cl::Kernel kernel_findGridEdgeAndReorder;
-	cl::Kernel kernel_simulate;
-	cl::Kernel kernel_bitonicSortLocal;
-	cl::Kernel kernel_bitonicSortLocal1;
-	cl::Kernel kernel_bitonicMergeGlobal;
-	cl::Kernel kernel_bitonicMergeLocal;
-	cl::Kernel kernel_memSet;
-
-	// evalute spherical harmonics coefficients (implementation from P.P. Sloan)
-	cl::Kernel kernel_SHEval3;
-	// simple reduction to get sum of velocities per cell
-	cl::Kernel kernel_sumVelSH;
-	// extra step to apply SH to boid simulation
-	cl::Kernel kernel_useSH;
-
-	cl::Event event;
-	cl::Event eventSim;
-
-	std::vector<cl::Memory> cl_pos_vbos;
-	std::vector<cl::Memory> cl_pos_vbos_out;
-	std::vector<cl::Memory> cl_vel_vbos;
-	std::vector<cl::Memory> cl_vel_vbos_out;
-
-
-	cl::Buffer cl_range;
-	cl::Buffer cl_gridHash_unsorted;
-	cl::Buffer cl_gridHash_sorted;
-	cl::Buffer cl_gridIndex_unsorted;
-	cl::Buffer cl_gridIndex_sorted;
-	cl::Buffer cl_simParams;
-	cl::Buffer cl_gridStartIndex;
-	cl::Buffer cl_gridEndIndex;
-	// sum of velocities
-	cl::Buffer cl_sumVel;
-
-	cl_int err;
-
-	std::vector<std::string> attribName;
-	Shader* shader;
 };
 
-/* Currently exactly the same as BoidModelGrid. Velocity on Y axis is set to 0. */
-class BoidModelGrid_2D : public BoidModel
+/*
+	Improved boid model using the GPU. It sorts the boids by their position in
+	cells. The velocity and position buffer are reordered, according to the
+	sorted index, for coalesced memory access.
+*/
+class BoidModelGrid : public BoidModelGridBase
+{
+public:
+	BoidModelGrid(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP);
+	void simulate(float dt);
+
+protected:
+	BoidModelGrid(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP,
+		const std::string& kernelFile, const char* modelName);
+
+	// reordered pos/vel, input of the simulation kernel
+	cl::Buffer cl_pos_out;
+	cl::Buffer cl_velocities_out;
+};
+
+/* The same as BoidModelGrid with a 2D kernel: velocity on the Y axis is 0. */
+class BoidModelGrid_2D : public BoidModelGrid
 {
 public:
 	BoidModelGrid_2D(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP);
-	~BoidModelGrid_2D();
-	void simulate(float dt);
-	GLuint getPosVBO();
-	GLuint getVelVBO();
-	GLuint getPosVAO();
-	int getNumBoid();
-	long getSimulationTime();
-	void getFollowedBoid(unsigned int* boidIndex, Vec4 *pos, Vec4 *vel);
-
-	void render();
-	Shader* getShader();
-	void bindShader();
-	void unbindShader();
-	std::vector<const char*> getSimTimeDescriptions();
-
-private:
-	cl::Program loadProgram(const std::string &filename);
-	void loadKernel();
-	void createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel);
-	void loadData(std::vector<Vec4> vel);
-	void bitonicSort(cl::Buffer d_DstKey, cl::Buffer d_DstVal, cl::Buffer d_SrcKey, cl::Buffer d_SrcVal, unsigned int batch, unsigned int arrayLength, unsigned int dir);
-	void createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel);
-
-	static cl_uint factorRadix2(cl_uint& log2L, cl_uint L);
-
-	float Y_AxisFixed;
-
-	int helper = 0;
-	GLuint pos_vbo[1];
-	GLuint vel_vbo[1];
-	GLuint pos_vao[1];
-	int num;
-
-	std::vector<const char*> simTimeDisc;
-	std::string stringSimTime;
-	std::string stringHashTime;
-	std::string stringSortTime;
-	std::string stringEdgeTime;
-	long times[4];
-
-	cl::Context context;
-	cl::CommandQueue queue;
-	cl::Program programBoid;
-	cl::Program programBitonic;
-	std::vector<cl::Device> devices;
-
-	cl::Kernel kernel_getGridHash;
-	cl::Kernel kernel_getGridEdge;
-	cl::Kernel kernel_findGridEdgeAndReorder;
-	cl::Kernel kernel_simulate;
-	cl::Kernel kernel_bitonicSortLocal;
-	cl::Kernel kernel_bitonicSortLocal1;
-	cl::Kernel kernel_bitonicMergeGlobal;
-	cl::Kernel kernel_bitonicMergeLocal;
-	cl::Kernel kernel_memSet;
-
-	cl::Event event;
-	cl::Event eventSim;
-
-	std::vector<cl::Memory> cl_pos_vbos;
-	std::vector<cl::Memory> cl_vel_vbos;
-
-	cl::Buffer cl_pos_out;
-	cl::Buffer cl_range;
-	cl::Buffer cl_velocities_out;
-	cl::Buffer cl_gridHash_unsorted;
-	cl::Buffer cl_gridHash_sorted;
-	cl::Buffer cl_gridIndex_unsorted;
-	cl::Buffer cl_gridIndex_sorted;
-	cl::Buffer cl_simParams;
-	cl::Buffer cl_gridStartIndex;
-	cl::Buffer cl_gridEndIndex;
-
-	cl_int err;
-
-	std::vector<std::string> attribName;
-	Shader* shader;
 };
 
-/* Currently exactly the same as BoidModelSH. Velocity on Y axis is set to 0.*/
-class BoidModelSH_2D : public BoidModel
+/* Boid model with Spherical Harmonics long-range collision avoidance.
+   Basically BoidModelGrid extended with SH. */
+class BoidModelSH : public BoidModelGridBase
+{
+public:
+	BoidModelSH(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP);
+	void simulate(float dt);
+
+protected:
+	BoidModelSH(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP,
+		const std::string& kernelFile, const char* modelName);
+
+	/* set the trailing useSH arguments; the 2D variant inserts the fixed Y height */
+	virtual void setUseSHFinalArgs(float dt);
+
+	// summed velocity per cell, input of the SH evaluation
+	cl::Buffer cl_sumVel;
+
+	cl::Kernel kernel_sumVelSH;
+	cl::Kernel kernel_useSH;
+};
+
+/* The same as BoidModelSH with a 2D kernel: the boids are placed on a fixed Y
+   plane and their useSH kernel keeps them there. */
+class BoidModelSH_2D : public BoidModelSH
 {
 public:
 	BoidModelSH_2D(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP);
-	~BoidModelSH_2D();
-	void simulate(float dt);
-	GLuint getPosVBO();
-	GLuint getVelVBO();
-	GLuint getPosVAO();
-	int getNumBoid();
-	long getSimulationTime();
-	std::vector<const char*> getSimTimeDescriptions();
-	void getFollowedBoid(unsigned int* boidIndex, Vec4 *pos, Vec4 *vel);
 
-	void render();
-	Shader* getShader();
-	void bindShader();
-	void unbindShader();
+protected:
+	void setUseSHFinalArgs(float dt);
 
 private:
-	cl::Program loadProgram(const std::string &filename);
-	void loadKernel();
-	void createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel);
-	void loadData();
-	void bitonicSort(cl::Buffer d_DstKey, cl::Buffer d_DstVal, cl::Buffer d_SrcKey, cl::Buffer d_SrcVal, unsigned int batch, unsigned int arrayLength, unsigned int dir);
-	void createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel);
-
-	static cl_uint factorRadix2(cl_uint& log2L, cl_uint L);
-
-	GLuint pos_vbo[1];
-	GLuint vel_vbo[1];
-	GLuint pos_vao[1];
-
-	GLuint vel_vbo_out[1];
-	GLuint pos_vbo_out[1];
-	GLuint pos_vao_out[1];
-	int num;
-
-	bool counter = false;
-
-	float Y_AxisFixed;
-
-	std::vector<const char*> simTimeDisc;
-	std::string stringSimTime;
-	std::string stringHashTime;
-	std::string stringSortTime;
-	std::string stringEdgeTime;
-	std::string stringSHTime;
-	std::string stringSumTime;
-	long times[6];
-
-	cl::Context context;
-	cl::CommandQueue queue;
-	cl::Program programBoid;
-	cl::Program programBitonic;
-	std::vector<cl::Device> devices;
-
-	cl::Kernel kernel_getGridHash;
-	cl::Kernel kernel_getGridEdge;
-	cl::Kernel kernel_findGridEdgeAndReorder;
-	cl::Kernel kernel_simulate;
-	cl::Kernel kernel_bitonicSortLocal;
-	cl::Kernel kernel_bitonicSortLocal1;
-	cl::Kernel kernel_bitonicMergeGlobal;
-	cl::Kernel kernel_bitonicMergeLocal;
-	cl::Kernel kernel_memSet;
-
-	cl::Kernel kernel_SHEval3;
-	cl::Kernel kernel_sumVelSH;
-	cl::Kernel kernel_useSH;
-
-	cl::Event event;
-	cl::Event eventSim;
-
-	std::vector<cl::Memory> cl_pos_vbos;
-	std::vector<cl::Memory> cl_pos_vbos_out;
-	std::vector<cl::Memory> cl_vel_vbos;
-	std::vector<cl::Memory> cl_vel_vbos_out;
-
-	cl::Buffer cl_range;
-	cl::Buffer cl_gridHash_unsorted;
-	cl::Buffer cl_gridHash_sorted;
-	cl::Buffer cl_gridIndex_unsorted;
-	cl::Buffer cl_gridIndex_sorted;
-	cl::Buffer cl_simParams;
-	cl::Buffer cl_gridStartIndex;
-	cl::Buffer cl_gridEndIndex;
-	cl::Buffer cl_sumVel;
-
-	cl_int err;
-
-	std::vector<std::string> attribName;
-	Shader* shader;
+	// Y position all boids are kept on
+	float yAxisFixed;
 };
 
-/* BoidModelSH with path finding. */
-class BoidModelSHWay1 : public BoidModel
+/* BoidModelSH with path finding. The SH representation is aggregated per cell. */
+class BoidModelSHWay1 : public BoidModelGridBase
 {
 public:
-	BoidModelSHWay1(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, std::vector<Vec4> color, simParams_t* simP);
-	~BoidModelSHWay1();
-
-	// override from super class BoidModel
+	BoidModelSHWay1(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel,
+		std::vector<Vec4> goal, std::vector<Vec4> color, simParams_t* simP);
 	void simulate(float dt);
-	GLuint getPosVBO();
-	GLuint getVelVBO();
-	GLuint getPosVAO();
-	int getNumBoid();
-	long getSimulationTime();
-	std::vector<const char*> getSimTimeDescriptions();
-	void getFollowedBoid(unsigned int* boidIndex, Vec4 *pos, Vec4 *vel);
-
-	// override from interface Renderable
-	void render();
-	Shader* getShader();
-	void bindShader();
-	void unbindShader();
 
 private:
-	cl::Program loadProgram(const std::string &filename);
-	void loadKernel();
-	void createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, std::vector<Vec4> color);
-	void loadData(std::vector<Vec4> goal);
-	void bitonicSort(cl::Buffer d_DstKey, cl::Buffer d_DstVal, cl::Buffer d_SrcKey, cl::Buffer d_SrcVal, unsigned int batch, unsigned int arrayLength, unsigned int dir);
-	void createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color);
+	// per cell SH coefficients of the aggregated velocities
+	cl::Buffer cl_shEvalX, cl_shEvalY, cl_shEvalZ;
+	cl::Buffer cl_coef0X, cl_coef0Y, cl_coef0Z;
 
-	static cl_uint factorRadix2(cl_uint& log2L, cl_uint L);
-
-	int helper = 0;
-	GLuint pos_vbo[1];
-	GLuint vel_vbo[1];
-	GLuint color_vbo[1];
-	GLuint pos_vao[1];
-
-	GLuint vel_vbo_out[1];
-	GLuint pos_vbo_out[1];
-	GLuint color_vbo_out[1];
-	GLuint pos_vao_out[1];
-	int num;
-
-	bool counter = false;
-
-	std::vector<const char*> simTimeDisc;
-	std::string stringSimTime;
-	std::string stringHashTime;
-	std::string stringSortTime;
-	std::string stringEdgeTime;
-	// string of the spherical harmonics step
-	std::string stringSHTime;
-	// string of the reduction of the velocities
-	std::string stringSumTime;
-	long times[6];
-
-	cl::Context context;
-	cl::CommandQueue queue;
-	cl::Program programBoid;
-	cl::Program programBitonic;
-	std::vector<cl::Device> devices;
-
-	cl::Kernel kernel_getGridHash;
-	cl::Kernel kernel_getGridEdge;
-	cl::Kernel kernel_findGridEdgeAndReorder;
-	cl::Kernel kernel_simulate;
-	cl::Kernel kernel_bitonicSortLocal;
-	cl::Kernel kernel_bitonicSortLocal1;
-	cl::Kernel kernel_bitonicMergeGlobal;
-	cl::Kernel kernel_bitonicMergeLocal;
-	cl::Kernel kernel_memSet;
-
-	//evalute spherical harmonics coefficients (implementation from P.P. Sloan)
-	cl::Kernel kernel_SHEval3;
-	//simple reduction to get sum of velocities per cell
 	cl::Kernel kernel_evalSH;
-	//extra step to apply SH to boid simulation
 	cl::Kernel kernel_useSH;
-
-	cl::Event event;
-	cl::Event eventSim;
-
-	std::vector<cl::Memory> cl_pos_vbos;
-	std::vector<cl::Memory> cl_pos_vbos_out;
-	std::vector<cl::Memory> cl_vel_vbos;
-	std::vector<cl::Memory> cl_vel_vbos_out;
-	std::vector<cl::Memory> cl_color_vbos;
-	std::vector<cl::Memory> cl_color_vbos_out;
-
-	cl::Buffer cl_shEvalX;
-	cl::Buffer cl_shEvalY;
-	cl::Buffer cl_shEvalZ;
-	cl::Buffer cl_coef0X;
-	cl::Buffer cl_coef0Y;
-	cl::Buffer cl_coef0Z;
-	cl::Buffer cl_goal_in;
-	cl::Buffer cl_goal_out;
-	cl::Buffer cl_range;
-	cl::Buffer cl_gridHash_unsorted;
-	cl::Buffer cl_gridHash_sorted;
-	cl::Buffer cl_gridIndex_unsorted;
-	cl::Buffer cl_gridIndex_sorted;
-	cl::Buffer cl_simParams;
-	cl::Buffer cl_gridStartIndex;
-	cl::Buffer cl_gridEndIndex;
-	// sum of velocities
-	cl::Buffer cl_sumVel;
-
-	cl_int err;
-
-	std::vector<std::string> attribName;
-	Shader* shader;
 };
 
-
-/*
-	Draw the boidModelSH with way finding.
-*/
-class BoidModelSHWay2 : public BoidModel
+/* BoidModelSH with path finding. The SH representation is kept per boid,
+   the unaggregated (and much more expensive) reference of Way1. */
+class BoidModelSHWay2 : public BoidModelGridBase
 {
 public:
-	BoidModelSHWay2(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, std::vector<Vec4> color, simParams_t* simP);
-	~BoidModelSHWay2();
-
-	//inherited from super class BoidModel
+	BoidModelSHWay2(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel,
+		std::vector<Vec4> goal, std::vector<Vec4> color, simParams_t* simP);
 	void simulate(float dt);
-	GLuint getPosVBO();
-	GLuint getVelVBO();
-	GLuint getPosVAO();
-	int getNumBoid();
-	long getSimulationTime();
-	std::vector<const char*> getSimTimeDescriptions();
-	void getFollowedBoid(unsigned int* boidIndex, Vec4 *pos, Vec4 *vel);
-
-	//inherited from interface Renderable
-	void render();
-	Shader* getShader();
-	void bindShader();
-	void unbindShader();
 
 private:
-	cl::Program loadProgram(const std::string &filename);
-	void loadKernel();
-	void createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, std::vector<Vec4> color);
-	void loadData(std::vector<Vec4> goal);
-	void bitonicSort(cl::Buffer d_DstKey, cl::Buffer d_DstVal, cl::Buffer d_SrcKey, cl::Buffer d_SrcVal, unsigned int batch, unsigned int arrayLength, unsigned int dir);
-	void createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color);
+	// per boid SH coefficients
+	cl::Buffer cl_shEvalX, cl_shEvalY, cl_shEvalZ;
+	cl::Buffer cl_coef0X, cl_coef0Y, cl_coef0Z;
 
-	static cl_uint factorRadix2(cl_uint& log2L, cl_uint L);
-
-	int helper = 0;
-	GLuint pos_vbo[1];
-	GLuint vel_vbo[1];
-	GLuint color_vbo[1];
-	GLuint pos_vao[1];
-
-	GLuint vel_vbo_out[1];
-	GLuint pos_vbo_out[1];
-	GLuint color_vbo_out[1];
-	GLuint pos_vao_out[1];
-	int num;
-
-	bool counter = false;
-
-	std::vector<const char*> simTimeDisc;
-	std::string stringSimTime;
-	std::string stringHashTime;
-	std::string stringSortTime;
-	std::string stringEdgeTime;
-	//string of the spherical harmonics step
-	std::string stringSHTime;
-	//string of the reduction of the velocities
-	std::string stringSumTime;
-	long times[6];
-
-	cl::Context context;
-	cl::CommandQueue queue;
-	cl::Program programBoid;
-	cl::Program programBitonic;
-	std::vector<cl::Device> devices;
-
-	cl::Kernel kernel_getGridHash;
-	cl::Kernel kernel_getGridEdge;
-	cl::Kernel kernel_findGridEdgeAndReorder;
-	cl::Kernel kernel_simulate;
-	cl::Kernel kernel_bitonicSortLocal;
-	cl::Kernel kernel_bitonicSortLocal1;
-	cl::Kernel kernel_bitonicMergeGlobal;
-	cl::Kernel kernel_bitonicMergeLocal;
-	cl::Kernel kernel_memSet;
-
-	//evalute spherical harmonics coefficients (implementation from P.P. Sloan)
-	cl::Kernel kernel_SHEval3;
-	//simple reduction to get sum of velocities per cell
 	cl::Kernel kernel_evalSH;
-	//extra step to apply SH to boid simulation
 	cl::Kernel kernel_useSH;
-
-	cl::Event event;
-	cl::Event eventSim;
-
-	std::vector<cl::Memory> cl_pos_vbos;
-	std::vector<cl::Memory> cl_pos_vbos_out;
-	std::vector<cl::Memory> cl_vel_vbos;
-	std::vector<cl::Memory> cl_vel_vbos_out;
-	std::vector<cl::Memory> cl_color_vbos;
-	std::vector<cl::Memory> cl_color_vbos_out;
-
-	cl::Buffer cl_shEvalX;
-	cl::Buffer cl_shEvalY;
-	cl::Buffer cl_shEvalZ;
-	cl::Buffer cl_coef0X;
-	cl::Buffer cl_coef0Y;
-	cl::Buffer cl_coef0Z;
-	cl::Buffer cl_goal_in;
-	cl::Buffer cl_goal_out;
-	cl::Buffer cl_range;
-	cl::Buffer cl_gridHash_unsorted;
-	cl::Buffer cl_gridHash_sorted;
-	cl::Buffer cl_gridIndex_unsorted;
-	cl::Buffer cl_gridIndex_sorted;
-	cl::Buffer cl_simParams;
-	cl::Buffer cl_gridStartIndex;
-	cl::Buffer cl_gridEndIndex;
-	//sum of velocities
-	cl::Buffer cl_sumVel;
-
-	cl_int err;
-
-	std::vector<std::string> attribName;
-	Shader* shader;
 };
 
-/*SH obstacle avoidance*/
-class BoidModelSHObstacle : public BoidModel
+/* SH obstacle avoidance: the obstacle geometry is projected once into SH
+   coefficients which repel the goal seeking boids. */
+class BoidModelSHObstacle : public BoidModelGridBase
 {
 public:
-	BoidModelSHObstacle(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, simParams_t* simP, std::vector<Vec4> cor, std::vector<unsigned int> start, std::vector<unsigned int> end, std::vector<Vec4> posObst);
-	~BoidModelSHObstacle();
-
-	//inherited from super class BoidModel
+	BoidModelSHObstacle(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel,
+		std::vector<Vec4> goal, simParams_t* simP, std::vector<Vec4> cor,
+		std::vector<unsigned int> start, std::vector<unsigned int> end, std::vector<Vec4> posObst);
 	void simulate(float dt);
-	GLuint getPosVBO();
-	GLuint getVelVBO();
-	GLuint getPosVAO();
-	int getNumBoid();
-	long getSimulationTime();
-	std::vector<const char*> getSimTimeDescriptions();
-	void getFollowedBoid(unsigned int* boidIndex, Vec4 *pos, Vec4 *vel);
-
-	//inherited from interface Renderable
-	void render();
-	Shader* getShader();
-	void bindShader();
-	void unbindShader();
 
 private:
-	cl::Program loadProgram(const std::string &filename);
-	void loadKernel();
-	void createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal);
-	void loadData(std::vector<Vec4> goal);
-	void bitonicSort(cl::Buffer d_DstKey, cl::Buffer d_DstVal, cl::Buffer d_SrcKey, cl::Buffer d_SrcVal, unsigned int batch, unsigned int arrayLength, unsigned int dir);
-	void createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel);
-	void createAndLoadObstacleSH(std::vector<Vec4> cor, std::vector<unsigned int> start, std::vector<unsigned int> end, std::vector<Vec4> posObst);
+	// per boid SH coefficients
+	cl::Buffer cl_shEvalX, cl_shEvalY, cl_shEvalZ;
+	cl::Buffer cl_coef0X, cl_coef0Y, cl_coef0Z;
 
-	static cl_uint factorRadix2(cl_uint& log2L, cl_uint L);
+	// SH representation of the static obstacles, computed once at setup
+	cl::Buffer cl_shEvalOX, cl_shEvalOY, cl_shEvalOZ;
+	cl::Buffer cl_coef0OX, cl_coef0OY, cl_coef0OZ;
+	cl::Buffer cl_cor, cl_startCor, cl_endCor, cl_posObst;
+	unsigned int numObst;
 
-	int helper = 0;
-	GLuint pos_vbo[1];
-	GLuint vel_vbo[1];
-	GLuint pos_vao[1];
-
-	GLuint vel_vbo_out[1];
-	GLuint pos_vbo_out[1];
-	GLuint pos_vao_out[1];
-	int num;
-
-	bool counter = false;
-
-	std::vector<const char*> simTimeDisc;
-	std::string stringSimTime;
-	std::string stringHashTime;
-	std::string stringSortTime;
-	std::string stringEdgeTime;
-	//string of the spherical harmonics step
-	std::string stringSHTime;
-	//string of the reduction of the velocities
-	std::string stringSumTime;
-	long times[6];
-
-	cl::Context context;
-	cl::CommandQueue queue;
-	cl::Program programBoid;
-	cl::Program programBitonic;
-	std::vector<cl::Device> devices;
-
-	cl::Kernel kernel_getGridHash;
-	cl::Kernel kernel_getGridEdge;
-	cl::Kernel kernel_findGridEdgeAndReorder;
-	cl::Kernel kernel_simulate;
-	cl::Kernel kernel_bitonicSortLocal;
-	cl::Kernel kernel_bitonicSortLocal1;
-	cl::Kernel kernel_bitonicMergeGlobal;
-	cl::Kernel kernel_bitonicMergeLocal;
-	cl::Kernel kernel_memSet;
-
-	//evalute spherical harmonics coefficients (implementation from P.P. Sloan)
-	cl::Kernel kernel_SHEval3;
-	//simple reduction to get sum of velocities per cell
 	cl::Kernel kernel_evalSH;
-	//extra step to apply SH to boid simulation
 	cl::Kernel kernel_useSH;
-	//kernel to create SH representation of obstacles
 	cl::Kernel kernel_obstacle;
 
-	cl::Event event;
-	cl::Event eventSim;
-
-	std::vector<cl::Memory> cl_pos_vbos;
-	std::vector<cl::Memory> cl_pos_vbos_out;
-	std::vector<cl::Memory> cl_vel_vbos;
-	std::vector<cl::Memory> cl_vel_vbos_out;
-
-	cl::Buffer cl_shEvalX;
-	cl::Buffer cl_shEvalY;
-	cl::Buffer cl_shEvalZ;
-	cl::Buffer cl_coef0X;
-	cl::Buffer cl_coef0Y;
-	cl::Buffer cl_coef0Z;
-
-	cl::Buffer cl_shEvalOX;
-	cl::Buffer cl_shEvalOY;
-	cl::Buffer cl_shEvalOZ;
-	cl::Buffer cl_coef0OX;
-	cl::Buffer cl_coef0OY;
-	cl::Buffer cl_coef0OZ;
-	cl::Buffer cl_cor;
-	cl::Buffer cl_startCor;
-	cl::Buffer cl_endCor;
-	cl::Buffer cl_posObst;
-
-	cl::Buffer cl_goal_in;
-	cl::Buffer cl_goal_out;
-	cl::Buffer cl_range;
-	cl::Buffer cl_gridHash_unsorted;
-	cl::Buffer cl_gridHash_sorted;
-	cl::Buffer cl_gridIndex_unsorted;
-	cl::Buffer cl_gridIndex_sorted;
-	cl::Buffer cl_simParams;
-	cl::Buffer cl_gridStartIndex;
-	cl::Buffer cl_gridEndIndex;
-	//sum of velocities
-	cl::Buffer cl_sumVel;
-
-	cl_int err;
-
-	std::vector<std::string> attribName;
-	Shader* shader;
+	void createAndLoadObstacleSH(const std::vector<Vec4>& cor, const std::vector<unsigned int>& start,
+		const std::vector<unsigned int>& end, const std::vector<Vec4>& posObst);
 };
 
-
-/*Boid model way1 combined with obstacle avoidance*/
-
-class BoidModelSHCombined : public BoidModel
+/* Way1 path finding combined with SH obstacle avoidance. */
+class BoidModelSHCombined : public BoidModelGridBase
 {
 public:
-	BoidModelSHCombined(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, std::vector<Vec4> color, simParams_t* simP, std::vector<Vec4> cor, std::vector<unsigned int> start, std::vector<unsigned int> end, std::vector<Vec4> posObst);
-	~BoidModelSHCombined();
-
-	//inherited from super class BoidModel
+	BoidModelSHCombined(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel,
+		std::vector<Vec4> goal, std::vector<Vec4> color, simParams_t* simP, std::vector<Vec4> cor,
+		std::vector<unsigned int> start, std::vector<unsigned int> end, std::vector<Vec4> posObst);
 	void simulate(float dt);
-	GLuint getPosVBO();
-	GLuint getVelVBO();
-	GLuint getPosVAO();
-	int getNumBoid();
-	long getSimulationTime();
-	std::vector<const char*> getSimTimeDescriptions();
-	void getFollowedBoid(unsigned int* boidIndex, Vec4 *pos, Vec4 *vel);
 
-	//inherited from interface Renderable
-	void render();
-	Shader* getShader();
-	void bindShader();
-	void unbindShader();
+protected:
+	BoidModelSHCombined(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel,
+		std::vector<Vec4> goal, std::vector<Vec4> color, simParams_t* simP, std::vector<Vec4> cor,
+		std::vector<unsigned int> start, std::vector<unsigned int> end, std::vector<Vec4> posObst,
+		const std::string& kernelFile, const char* modelName);
 
 private:
-	cl::Program loadProgram(const std::string &filename);
-	void loadKernel();
-	void createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, std::vector<Vec4> color);
-	void loadData(std::vector<Vec4> goal);
-	void bitonicSort(cl::Buffer d_DstKey, cl::Buffer d_DstVal, cl::Buffer d_SrcKey, cl::Buffer d_SrcVal, unsigned int batch, unsigned int arrayLength, unsigned int dir);
-	void createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color);
-	void createAndLoadObstacleSH(std::vector<Vec4> cor, std::vector<unsigned int> start, std::vector<unsigned int> end, std::vector<Vec4> posObst);
+	// per boid SH coefficients
+	cl::Buffer cl_shEvalX, cl_shEvalY, cl_shEvalZ;
+	cl::Buffer cl_coef0X, cl_coef0Y, cl_coef0Z;
 
-	static cl_uint factorRadix2(cl_uint& log2L, cl_uint L);
+	// SH representation of the static obstacles, computed once at setup
+	cl::Buffer cl_shEvalOX, cl_shEvalOY, cl_shEvalOZ;
+	cl::Buffer cl_coef0OX, cl_coef0OY, cl_coef0OZ;
+	cl::Buffer cl_cor, cl_startCor, cl_endCor, cl_posObst;
+	unsigned int numObst;
 
-	int helper = 0;
-	GLuint pos_vbo[1];
-	GLuint vel_vbo[1];
-	GLuint color_vbo[1];
-	GLuint pos_vao[1];
-
-	GLuint vel_vbo_out[1];
-	GLuint pos_vbo_out[1];
-	GLuint color_vbo_out[1];
-	GLuint pos_vao_out[1];
-	int num;
-
-	bool counter = false;
-
-	std::vector<const char*> simTimeDisc;
-	std::string stringSimTime;
-	std::string stringHashTime;
-	std::string stringSortTime;
-	std::string stringEdgeTime;
-	//string of the spherical harmonics step
-	std::string stringSHTime;
-	//string of the reduction of the velocities
-	std::string stringSumTime;
-	long times[6];
-
-	cl::Context context;
-	cl::CommandQueue queue;
-	cl::Program programBoid;
-	cl::Program programBitonic;
-	std::vector<cl::Device> devices;
-
-	cl::Kernel kernel_getGridHash;
-	cl::Kernel kernel_getGridEdge;
-	cl::Kernel kernel_findGridEdgeAndReorder;
-	cl::Kernel kernel_simulate;
-	cl::Kernel kernel_bitonicSortLocal;
-	cl::Kernel kernel_bitonicSortLocal1;
-	cl::Kernel kernel_bitonicMergeGlobal;
-	cl::Kernel kernel_bitonicMergeLocal;
-	cl::Kernel kernel_memSet;
-
-	//evalute spherical harmonics coefficients (implementation from P.P. Sloan)
-	cl::Kernel kernel_SHEval3;
-	//simple reduction to get sum of velocities per cell
 	cl::Kernel kernel_evalSH;
-	//extra step to apply SH to boid simulation
 	cl::Kernel kernel_useSH;
-	//kernel to create SH representation of obstacles
 	cl::Kernel kernel_obstacle;
 
-	cl::Event event;
-	cl::Event eventSim;
-
-	std::vector<cl::Memory> cl_pos_vbos;
-	std::vector<cl::Memory> cl_pos_vbos_out;
-	std::vector<cl::Memory> cl_vel_vbos;
-	std::vector<cl::Memory> cl_vel_vbos_out;
-	std::vector<cl::Memory> cl_color_vbos;
-	std::vector<cl::Memory> cl_color_vbos_out;
-
-	cl::Buffer cl_shEvalX;
-	cl::Buffer cl_shEvalY;
-	cl::Buffer cl_shEvalZ;
-	cl::Buffer cl_coef0X;
-	cl::Buffer cl_coef0Y;
-	cl::Buffer cl_coef0Z;
-
-	cl::Buffer cl_shEvalOX;
-	cl::Buffer cl_shEvalOY;
-	cl::Buffer cl_shEvalOZ;
-	cl::Buffer cl_coef0OX;
-	cl::Buffer cl_coef0OY;
-	cl::Buffer cl_coef0OZ;
-	cl::Buffer cl_cor;
-	cl::Buffer cl_startCor;
-	cl::Buffer cl_endCor;
-	cl::Buffer cl_posObst;
-
-	cl::Buffer cl_goal_in;
-	cl::Buffer cl_goal_out;
-	cl::Buffer cl_range;
-	cl::Buffer cl_gridHash_unsorted;
-	cl::Buffer cl_gridHash_sorted;
-	cl::Buffer cl_gridIndex_unsorted;
-	cl::Buffer cl_gridIndex_sorted;
-	cl::Buffer cl_simParams;
-	cl::Buffer cl_gridStartIndex;
-	cl::Buffer cl_gridEndIndex;
-	//sum of velocities
-	cl::Buffer cl_sumVel;
-
-	cl_int err;
-
-	std::vector<std::string> attribName;
-	Shader* shader;
+	void createAndLoadObstacleSH(const std::vector<Vec4>& cor, const std::vector<unsigned int>& start,
+		const std::vector<unsigned int>& end, const std::vector<Vec4>& posObst);
 };
 
-
-
-/*Tunnel test case*/
-class BoidModelSHObstacleTunnel : public BoidModel
+/* The tunnel test case: BoidModelSHCombined with the tunnel kernel. */
+class BoidModelSHObstacleTunnel : public BoidModelSHCombined
 {
 public:
-	BoidModelSHObstacleTunnel(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, std::vector<Vec4> color, simParams_t* simP, std::vector<Vec4> cor, std::vector<unsigned int> start, std::vector<unsigned int> end, std::vector<Vec4> posObst);
-	~BoidModelSHObstacleTunnel();
-
-	//inherited from super class BoidModel
-	void simulate(float dt);
-	GLuint getPosVBO();
-	GLuint getVelVBO();
-	GLuint getPosVAO();
-	int getNumBoid();
-	long getSimulationTime();
-	std::vector<const char*> getSimTimeDescriptions();
-	void getFollowedBoid(unsigned int* boidIndex, Vec4 *pos, Vec4 *vel);
-
-	//inherited from interface Renderable
-	void render();
-	Shader* getShader();
-	void bindShader();
-	void unbindShader();
-
-private:
-	cl::Program loadProgram(const std::string &filename);
-	void loadKernel();
-	void createBuffer(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> goal, std::vector<Vec4> color);
-	void loadData(std::vector<Vec4> goal);
-	void bitonicSort(cl::Buffer d_DstKey, cl::Buffer d_DstVal, cl::Buffer d_SrcKey, cl::Buffer d_SrcVal, unsigned int batch, unsigned int arrayLength, unsigned int dir);
-	void createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color);
-	void createAndLoadObstacleSH(std::vector<Vec4> cor, std::vector<unsigned int> start, std::vector<unsigned int> end, std::vector<Vec4> posObst);
-
-	static cl_uint factorRadix2(cl_uint& log2L, cl_uint L);
-
-	int helper = 0;
-	GLuint pos_vbo[1];
-	GLuint vel_vbo[1];
-	GLuint color_vbo[1];
-	GLuint pos_vao[1];
-
-	GLuint vel_vbo_out[1];
-	GLuint pos_vbo_out[1];
-	GLuint color_vbo_out[1];
-	GLuint pos_vao_out[1];
-	int num;
-
-	bool counter = false;
-
-	std::vector<const char*> simTimeDisc;
-	std::string stringSimTime;
-	std::string stringHashTime;
-	std::string stringSortTime;
-	std::string stringEdgeTime;
-	//string of the spherical harmonics step
-	std::string stringSHTime;
-	//string of the reduction of the velocities
-	std::string stringSumTime;
-	long times[6];
-
-	cl::Context context;
-	cl::CommandQueue queue;
-	cl::Program programBoid;
-	cl::Program programBitonic;
-	std::vector<cl::Device> devices;
-
-	cl::Kernel kernel_getGridHash;
-	cl::Kernel kernel_getGridEdge;
-	cl::Kernel kernel_findGridEdgeAndReorder;
-	cl::Kernel kernel_simulate;
-	cl::Kernel kernel_bitonicSortLocal;
-	cl::Kernel kernel_bitonicSortLocal1;
-	cl::Kernel kernel_bitonicMergeGlobal;
-	cl::Kernel kernel_bitonicMergeLocal;
-	cl::Kernel kernel_memSet;
-
-	//evalute spherical harmonics coefficients (implementation from P.P. Sloan)
-	cl::Kernel kernel_SHEval3;
-	//simple reduction to get sum of velocities per cell
-	cl::Kernel kernel_evalSH;
-	//extra step to apply SH to boid simulation
-	cl::Kernel kernel_useSH;
-	//kernel to create SH representation of obstacles
-	cl::Kernel kernel_obstacle;
-
-	cl::Event event;
-	cl::Event eventSim;
-
-	std::vector<cl::Memory> cl_pos_vbos;
-	std::vector<cl::Memory> cl_pos_vbos_out;
-	std::vector<cl::Memory> cl_vel_vbos;
-	std::vector<cl::Memory> cl_vel_vbos_out;
-	std::vector<cl::Memory> cl_color_vbos;
-	std::vector<cl::Memory> cl_color_vbos_out;
-
-	cl::Buffer cl_shEvalX;
-	cl::Buffer cl_shEvalY;
-	cl::Buffer cl_shEvalZ;
-	cl::Buffer cl_coef0X;
-	cl::Buffer cl_coef0Y;
-	cl::Buffer cl_coef0Z;
-
-	cl::Buffer cl_shEvalOX;
-	cl::Buffer cl_shEvalOY;
-	cl::Buffer cl_shEvalOZ;
-	cl::Buffer cl_coef0OX;
-	cl::Buffer cl_coef0OY;
-	cl::Buffer cl_coef0OZ;
-	cl::Buffer cl_cor;
-	cl::Buffer cl_startCor;
-	cl::Buffer cl_endCor;
-	cl::Buffer cl_posObst;
-
-	cl::Buffer cl_goal_in;
-	cl::Buffer cl_goal_out;
-	cl::Buffer cl_range;
-	cl::Buffer cl_gridHash_unsorted;
-	cl::Buffer cl_gridHash_sorted;
-	cl::Buffer cl_gridIndex_unsorted;
-	cl::Buffer cl_gridIndex_sorted;
-	cl::Buffer cl_simParams;
-	cl::Buffer cl_gridStartIndex;
-	cl::Buffer cl_gridEndIndex;
-	//sum of velocities
-	cl::Buffer cl_sumVel;
-
-	cl_int err;
-
-	std::vector<std::string> attribName;
-	Shader* shader;
+	BoidModelSHObstacleTunnel(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel,
+		std::vector<Vec4> goal, std::vector<Vec4> color, simParams_t* simP, std::vector<Vec4> cor,
+		std::vector<unsigned int> start, std::vector<unsigned int> end, std::vector<Vec4> posObst);
 };
 
-#endif //_BOIDMODEL_H_
+#endif // _BOIDMODEL_H_

@@ -68,6 +68,11 @@ public:
 	//make the cube visible/invisible
 	void setVisibility(bool visibile);
 	void getObstacleForce(std::vector<Vec4>* cor, std::vector<unsigned int>* start, std::vector<unsigned int>* end, std::vector<Vec4>* posObstacle, unsigned int offset);
+
+	//number of obstacle segments / corner force vectors written by getObstacleForce
+	//(10 segments with 18 corners per width cell, plus the 9x9 wall minus the two openings)
+	unsigned int obstacleSegmentCount() const { return 10 * width + 2 * (9 * 9 - 2); }
+	unsigned int obstacleCornerCount() const { return 18 * width + 4 * (9 * 9 - 2); }
 };
 
 #endif

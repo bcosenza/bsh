@@ -33,6 +33,7 @@ SRCS := \
     Column.cpp \
     Tunnel.cpp \
     BoidModelSimple.cpp \
+    BoidModelGridBase.cpp \
     BoidModelGrid.cpp \
     BoidModelGrid_2D.cpp \
     BoidModelSH.cpp \

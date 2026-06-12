@@ -369,14 +369,15 @@ void OverlayText::render(){
 	float sy = 2.0f / windowHeight;
 
 	std::stringstream strstream;
-	strstream << "FPS: " << (int)(1000.f / Simulation::getInstance().getBoidModelSimulationTime());
-	const std::string fpsString = strstream.str();
-	textSimple[0] = fpsString.c_str();
+	strstream << "FPS: " << (int)(1000.f / Simulation::getInstance().getBoidModelSimulationTime())
+		<< "    #Boids: " << Simulation::getInstance().getBoidModelNumberOfBoids();
+	const std::string statsString = strstream.str();
+	textSimple[0] = statsString.c_str();
 
 	strstream.str(std::string());
-	strstream << "#Boids: " << Simulation::getInstance().getBoidModelNumberOfBoids();
-	const std::string numBoids = strstream.str();
-	textSimple[1] = numBoids.c_str();
+	strstream << "Scene " << Simulation::getInstance().getSceneName();
+	const std::string sceneString = strstream.str();
+	textSimple[1] = sceneString.c_str();
 
 	changeBoxTopBottom(sy, sx);
 	drawBox(boxBottomVAO[0]);

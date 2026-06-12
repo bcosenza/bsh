@@ -69,14 +69,24 @@ private:
 	//index of initial placement of boids
 	int currentInitPlacement;
 
+	//name of the current scene, shown in the overlay
+	const char* currentSceneName;
+
 	//create position and velocity data for boids dependend on currentInitPlacement
 	void createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color);
 	//restart the simulation
 	void restart(int modelNum);
 	//set simParams and restart for a given model number
 	void switchToModel(int modelNum);
+	//instantiate the boid model for a scene, including its obstacle data
+	BoidModel* createModel(int modelNum);
+	//build the combined obstacle buffers for the three columns
+	void columnObstacleData(std::vector<Vec4>* cor, std::vector<unsigned int>* start, std::vector<unsigned int>* end, std::vector<Vec4>* posObst);
 	//create random float between minimum mn and maximum mx
 	float randFloat(float mn, float mx);
+	//sample a position inside a spherical cluster of radius r cells,
+	//centered at the given fractions of the world extent
+	Vec4 clusterPos(float fx, float fy, float fz, float r);
 
 	Simulation();
 	~Simulation();
@@ -98,6 +108,8 @@ public:
 	float getTimeDiff();
 	//handle key press
 	void keyPress(unsigned char key);
+	//name of the current scene, e.g. "3: SH"
+	const char* getSceneName() const { return currentSceneName; }
 	//returns vector with all objects to be rendered
 	std::vector<Renderable*> getRenderList();
 

@@ -6,6 +6,94 @@
 
 Simulation *Simulation::pInstance = NULL;
 
+/*
+	Static description of every scene: simulation weights, world dimensions,
+	camera preset and which obstacles are part of it. switchToModel(), restart()
+	and the overlay all read from this table, so adding a scene means adding
+	one row here plus a case in createModel().
+*/
+struct SceneConfig {
+	int id;
+	const char* name;
+	unsigned int numBoids;
+	float wAlignment, wCohesion, wSeparation, wOwn, wPath;
+	float maxVel, maxVelCor;
+	unsigned int gridX, gridY, gridZ;
+	int cameraPreset;
+	bool flatGround;	// draw the flat ground used by the 2D worlds
+	bool showColumns;
+	bool showTunnel;
+};
+
+static const SceneConfig sceneTable[] = {
+	{ BOID_SIMPLE, "1: Simple (brute force)", NUM_BOIDS_SIMPLE,
+	  WEIGHT_ALIGNMENT, WEIGHT_COHESION, WEIGHT_SEPARATION, WEIGHT_OWN, 0.f,
+	  MAX_VEL_SIMPLE, MAX_VEL_COR_SIMPLE,
+	  GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z,
+	  CAMERA_PRESET_STANDARD, false, false, false },
+
+	{ BOID_GRID, "2: Grid", NUM_BOIDS_GRID,
+	  WEIGHT_ALIGNMENT_GRID, WEIGHT_COHESION_GRID, WEIGHT_SEPARATION_GRID, WEIGHT_OWN_GRID, 0.f,
+	  MAX_VEL_GRID, MAX_VEL_COR_GRID,
+	  GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z,
+	  CAMERA_PRESET_STANDARD, false, false, false },
+
+	{ BOID_SH, "3: SH", NUM_BOIDS_SH,
+	  WEIGHT_ALIGNMENT_SH, WEIGHT_COHESION_SH, WEIGHT_SEPARATION_SH, WEIGHT_OWN_SH, 0.f,
+	  MAX_VEL_GRID, MAX_VEL_COR_GRID,
+	  GRID_SIZE_X_SH, GRID_SIZE_Y_SH, GRID_SIZE_Z_SH,
+	  CAMERA_PRESET_SH, false, false, false },
+
+	{ BOID_GRID_2D, "4: Grid 2D", NUM_BOIDS_GRID_2D,
+	  WEIGHT_ALIGNMENT_GRID_2D, WEIGHT_COHESION_GRID_2D, WEIGHT_SEPARATION_GRID_2D, WEIGHT_OWN_GRID_2D, 0.f,
+	  MAX_VEL_GRID, MAX_VEL_COR_GRID,
+	  GRID_SIZE_X_GRID_2D, GRID_SIZE_Y_GRID_2D, GRID_SIZE_Z_GRID_2D,
+	  CAMERA_PRESET_2D_FAR, true, false, false },
+
+	{ BOID_SH_2D, "5: SH 2D", NUM_BOIDS_SH_2D,
+	  WEIGHT_ALIGNMENT_SH_2D, WEIGHT_COHESION_SH_2D, WEIGHT_SEPARATION_SH_2D, WEIGHT_OWN_SH_2D, 0.f,
+	  MAX_VEL_GRID, MAX_VEL_COR_GRID,
+	  GRID_SIZE_X_SH_2D, GRID_SIZE_Y_SH_2D, GRID_SIZE_Z_SH_2D,
+	  CAMERA_PRESET_2D, true, false, false },
+
+	{ BOID_SH_WAY1, "6: SH Way 1", NUM_BOIDS_SH,
+	  WEIGHT_ALIGNMENT_SH_WAY1, WEIGHT_COHESION_SH_WAY1, WEIGHT_SEPARATION_SH_WAY1, WEIGHT_OWN_SH_WAY1, WEIGHT_GOAL_SH_WAY1,
+	  MAX_VEL_GRID, MAX_VEL_COR_GRID,
+	  GRID_SIZE_X_SH_WAY1, GRID_SIZE_Y_SH_WAY1, GRID_SIZE_Z_SH_WAY1,
+	  CAMERA_PRESET_SH_SMALL, false, false, false },
+
+	{ BOID_SH_WAY2, "7: SH Way 2", NUM_BOIDS_SH,
+	  WEIGHT_ALIGNMENT_SH_WAY1, WEIGHT_COHESION_SH_WAY1, WEIGHT_SEPARATION_SH_WAY1, WEIGHT_OWN_SH_WAY1, WEIGHT_GOAL_SH_WAY1,
+	  MAX_VEL_GRID, MAX_VEL_COR_GRID,
+	  GRID_SIZE_X_SH_WAY1, GRID_SIZE_Y_SH_WAY1, GRID_SIZE_Z_SH_WAY1,
+	  CAMERA_PRESET_SH_SMALL, false, false, false },
+
+	{ BOID_SH_OBSTACLE, "8: SH Obstacle", NUM_BOIDS_SH,
+	  WEIGHT_ALIGNMENT_SH_OBSTACLE, WEIGHT_COHESION_SH_OBSTACLE, WEIGHT_SEPARATION_SH_OBSTACLE, WEIGHT_OWN_SH_OBSTACLE, WEIGHT_GOAL_SH_OBSTACLE,
+	  MAX_VEL_GRID, MAX_VEL_COR_GRID,
+	  GRID_SIZE_X_SH_OBSTACLE, GRID_SIZE_Y_SH_OBSTACLE, GRID_SIZE_Z_SH_OBSTACLE,
+	  CAMERA_PRESET_SH_SMALL, false, true, false },
+
+	{ BOID_SH_OBSTACLE_COMBINED, "9: SH Obstacle + Way", NUM_BOIDS_SH,
+	  WEIGHT_ALIGNMENT_SH_OBSTACLE, WEIGHT_COHESION_SH_OBSTACLE, WEIGHT_SEPARATION_SH_OBSTACLE, WEIGHT_OWN_SH_OBSTACLE, WEIGHT_GOAL_SH_OBSTACLE,
+	  MAX_VEL_GRID, MAX_VEL_COR_GRID,
+	  GRID_SIZE_X_SH_OBSTACLE, GRID_SIZE_Y_SH_OBSTACLE, GRID_SIZE_Z_SH_OBSTACLE,
+	  CAMERA_PRESET_SH_SMALL, false, true, false },
+
+	{ BOID_SH_OBSTACLE_TUNNEL, "0: SH Tunnel", NUM_BOIDS_SH,
+	  WEIGHT_ALIGNMENT_SH_OBSTACLE, WEIGHT_COHESION_SH_OBSTACLE, WEIGHT_SEPARATION_SH_OBSTACLE, WEIGHT_OWN_SH_OBSTACLE, WEIGHT_GOAL_SH_OBSTACLE,
+	  MAX_VEL_GRID, MAX_VEL_COR_GRID,
+	  GRID_SIZE_X_SH_OBSTACLE, GRID_SIZE_Y_SH_OBSTACLE, GRID_SIZE_Z_SH_OBSTACLE,
+	  CAMERA_PRESET_SH_SMALL, false, false, true },
+};
+
+static const SceneConfig* findScene(int id){
+	for (size_t i = 0; i < sizeof(sceneTable) / sizeof(sceneTable[0]); i++)
+		if (sceneTable[i].id == id)
+			return &sceneTable[i];
+	return NULL;
+}
+
 Simulation::Simulation() {
 	srand(time(NULL));
 	initOk = GFX::getInstance().initOpenGL();
@@ -36,6 +124,7 @@ Simulation::Simulation() {
 
 	currentModel = BOID_SIMPLE;
 	pendingModel = BOID_SIMPLE;
+	currentSceneName = findScene(BOID_SIMPLE)->name;
 	boidModel = new BoidModelSimple(clHelper, pos, vel, &simParams);
 	
 	worldBox = new WorldBox(simParams.gridSize.x, TRUE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
@@ -85,180 +174,72 @@ void Simulation::init() {
 }
 
 void Simulation::restart(int modelNum){
+	const SceneConfig* scene = findScene(modelNum);
+	if (scene == NULL)
+		return;
+
 	delete boidModel;
 	delete worldBox;
 	delete worldGround;
-	std::vector<Vec4> cor(3 *(10 * 12 + 2 * 5)); std::vector<unsigned int> start(3 * 42); std::vector<unsigned int> end(3 * 42); std::vector<Vec4> posObst(3 * 42);
-	std::vector<Vec4> cor2(406); std::vector<unsigned int> start2(208); std::vector<unsigned int> end2(208); std::vector<Vec4> posObst2(208);
-	
-	switch (modelNum){
-		case BOID_SIMPLE:
-			pos.resize(simParams.numBodies);
-			vel.resize(simParams.numBodies);
-			goal.resize(simParams.numBodies);
-			color.resize(simParams.numBodies);
-			createData(&pos, &vel, &goal, &color);
 
-			column1->setVisibility(false);
-			column2->setVisibility(false);
-			column3->setVisibility(false);
-			tunnel->setVisibility(false);
+	pos.resize(simParams.numBodies);
+	vel.resize(simParams.numBodies);
+	goal.resize(simParams.numBodies);
+	color.resize(simParams.numBodies);
+	createData(&pos, &vel, &goal, &color);
 
-			boidModel = new BoidModelSimple(clHelper, pos, vel, &simParams);
-			worldGround = new WorldGround(FALSE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
-			break;
+	column1->setVisibility(scene->showColumns);
+	column2->setVisibility(scene->showColumns);
+	column3->setVisibility(scene->showColumns);
+	tunnel->setVisibility(scene->showTunnel);
 
-		case BOID_GRID:
-			pos.resize(simParams.numBodies);
-			vel.resize(simParams.numBodies);
-			goal.resize(simParams.numBodies);
-			color.resize(simParams.numBodies);
-			createData(&pos, &vel, &goal, &color);
-
-			column1->setVisibility(false);
-			column2->setVisibility(false);
-			column3->setVisibility(false);
-			tunnel->setVisibility(false);
-
-			boidModel = new BoidModelGrid(clHelper, pos, vel, &simParams);
-			worldGround = new WorldGround(FALSE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
-			break;
-
-		case BOID_SH:
-			pos.resize(simParams.numBodies);
-			vel.resize(simParams.numBodies);
-			goal.resize(simParams.numBodies);
-			color.resize(simParams.numBodies);
-			createData(&pos, &vel, &goal, &color);
-
-			column1->setVisibility(false);
-			column2->setVisibility(false);
-			column3->setVisibility(false);
-			tunnel->setVisibility(false);
-
-			boidModel = new BoidModelSH(clHelper, pos, vel, &simParams);
-			worldGround = new WorldGround(FALSE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
-			break;
-
-		case BOID_GRID_2D:
-			pos.resize(simParams.numBodies);
-			vel.resize(simParams.numBodies);
-			goal.resize(simParams.numBodies);
-			color.resize(simParams.numBodies);
-			createData(&pos, &vel, &goal, &color);
-
-			column1->setVisibility(false);
-			column2->setVisibility(false);
-			column3->setVisibility(false);
-			tunnel->setVisibility(false);
-
-			boidModel = new BoidModelGrid_2D(clHelper, pos, vel, &simParams);
-			worldGround = new WorldGround(TRUE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
-			break;
-
-		case BOID_SH_2D:
-			pos.resize(simParams.numBodies);
-			vel.resize(simParams.numBodies);
-			goal.resize(simParams.numBodies);
-			color.resize(simParams.numBodies);
-			createData(&pos, &vel, &goal, &color);
-
-			column1->setVisibility(false);
-			column2->setVisibility(false);
-			column3->setVisibility(false);
-			tunnel->setVisibility(false);
-
-			boidModel = new BoidModelSH_2D(clHelper, pos, vel, &simParams);
-			worldGround = new WorldGround(TRUE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
-			break;
-		case BOID_SH_WAY1:
-			pos.resize(simParams.numBodies);
-			vel.resize(simParams.numBodies);
-			goal.resize(simParams.numBodies);
-			color.resize(simParams.numBodies);
-			createData(&pos, &vel, &goal, &color);
-
-			column1->setVisibility(false);
-			column2->setVisibility(false);
-			column3->setVisibility(false);
-			tunnel->setVisibility(false);
-
-			boidModel = new BoidModelSHWay1(clHelper, pos, vel, goal, color, &simParams);
-			worldGround = new WorldGround(FALSE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
-			break;
-		case BOID_SH_WAY2:
-			pos.resize(simParams.numBodies);
-			vel.resize(simParams.numBodies);
-			goal.resize(simParams.numBodies);
-			color.resize(simParams.numBodies);
-			createData(&pos, &vel, &goal, &color);
-
-			column1->setVisibility(false);
-			column2->setVisibility(false);
-			column3->setVisibility(false);
-			tunnel->setVisibility(false);
-
-			boidModel = new BoidModelSHWay2(clHelper, pos, vel, goal, color, &simParams);
-			worldGround = new WorldGround(FALSE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
-			break;
-		case BOID_SH_OBSTACLE:
-			pos.resize(simParams.numBodies);
-			vel.resize(simParams.numBodies);
-			goal.resize(simParams.numBodies);
-			color.resize(simParams.numBodies);
-			createData(&pos, &vel, &goal, &color);
-
-			column1->setVisibility(true);
-			column2->setVisibility(true);
-			column3->setVisibility(true);
-			tunnel->setVisibility(false);
-
-			column1->getObstacleForce(&cor, &start, &end, &posObst, 0);
-			column2->getObstacleForce(&cor, &start, &end, &posObst, 42);
-			column3->getObstacleForce(&cor, &start, &end, &posObst, 84);
-			boidModel = new BoidModelSHObstacle(clHelper, pos, vel, goal, &simParams, cor, start, end, posObst);
-			worldGround = new WorldGround(FALSE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
-			break;
-		case BOID_SH_OBSTACLE_COMBINED:
-			pos.resize(simParams.numBodies);
-			vel.resize(simParams.numBodies);
-			goal.resize(simParams.numBodies);
-			color.resize(simParams.numBodies);
-			createData(&pos, &vel, &goal, &color);
-
-			column1->setVisibility(true);
-			column2->setVisibility(true);
-			column3->setVisibility(true);
-			tunnel->setVisibility(false);
-
-			column1->getObstacleForce(&cor, &start, &end, &posObst, 0);
-			column2->getObstacleForce(&cor, &start, &end, &posObst, 42);
-			column3->getObstacleForce(&cor, &start, &end, &posObst, 84);
-			boidModel = new BoidModelSHCombined(clHelper, pos, vel, goal, color, &simParams, cor, start, end, posObst);
-			worldGround = new WorldGround(FALSE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
-			break;
-		case BOID_SH_OBSTACLE_TUNNEL:
-			pos.resize(simParams.numBodies);
-			vel.resize(simParams.numBodies);
-			goal.resize(simParams.numBodies);
-			color.resize(simParams.numBodies);
-			createData(&pos, &vel, &goal, &color);
-
-			column1->setVisibility(false);
-			column2->setVisibility(false);
-			column3->setVisibility(false);
-			tunnel->setVisibility(true);
-
-			tunnel->getObstacleForce(&cor2, &start2, &end2, &posObst2, 0);
-			boidModel = new BoidModelSHObstacleTunnel(clHelper, pos, vel, goal, color, &simParams, cor2, start2, end2, posObst2);
-			worldGround = new WorldGround(FALSE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
-			break;
-	}
-
+	boidModel = createModel(modelNum);
+	worldGround = new WorldGround(scene->flatGround, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
 	worldBox = new WorldBox(simParams.gridSize.x, TRUE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
+
 	renderList[3] = worldGround;
 	renderList[1] = boidModel;
 	renderList[0] = worldBox;
+}
+
+void Simulation::columnObstacleData(std::vector<Vec4>* cor, std::vector<unsigned int>* start, std::vector<unsigned int>* end, std::vector<Vec4>* posObst){
+	unsigned int segments = column1->obstacleSegmentCount();
+	cor->resize(3 * column1->obstacleCornerCount());
+	start->resize(3 * segments);
+	end->resize(3 * segments);
+	posObst->resize(3 * segments);
+	column1->getObstacleForce(cor, start, end, posObst, 0);
+	column2->getObstacleForce(cor, start, end, posObst, segments);
+	column3->getObstacleForce(cor, start, end, posObst, 2 * segments);
+}
+
+BoidModel* Simulation::createModel(int modelNum){
+	switch (modelNum){
+	case BOID_SIMPLE:	return new BoidModelSimple(clHelper, pos, vel, &simParams);
+	case BOID_GRID:		return new BoidModelGrid(clHelper, pos, vel, &simParams);
+	case BOID_SH:		return new BoidModelSH(clHelper, pos, vel, &simParams);
+	case BOID_GRID_2D:	return new BoidModelGrid_2D(clHelper, pos, vel, &simParams);
+	case BOID_SH_2D:	return new BoidModelSH_2D(clHelper, pos, vel, &simParams);
+	case BOID_SH_WAY1:	return new BoidModelSHWay1(clHelper, pos, vel, goal, color, &simParams);
+	case BOID_SH_WAY2:	return new BoidModelSHWay2(clHelper, pos, vel, goal, color, &simParams);
+	case BOID_SH_OBSTACLE: {
+		std::vector<Vec4> cor, posObst; std::vector<unsigned int> start, end;
+		columnObstacleData(&cor, &start, &end, &posObst);
+		return new BoidModelSHObstacle(clHelper, pos, vel, goal, &simParams, cor, start, end, posObst);
+	}
+	case BOID_SH_OBSTACLE_COMBINED: {
+		std::vector<Vec4> cor, posObst; std::vector<unsigned int> start, end;
+		columnObstacleData(&cor, &start, &end, &posObst);
+		return new BoidModelSHCombined(clHelper, pos, vel, goal, color, &simParams, cor, start, end, posObst);
+	}
+	case BOID_SH_OBSTACLE_TUNNEL: {
+		std::vector<Vec4> cor(tunnel->obstacleCornerCount()), posObst(tunnel->obstacleSegmentCount());
+		std::vector<unsigned int> start(tunnel->obstacleSegmentCount()), end(tunnel->obstacleSegmentCount());
+		tunnel->getObstacleForce(&cor, &start, &end, &posObst, 0);
+		return new BoidModelSHObstacleTunnel(clHelper, pos, vel, goal, color, &simParams, cor, start, end, posObst);
+	}
+	}
+	return NULL;
 }
 
 
@@ -291,145 +272,27 @@ float Simulation::getTimeDiff(){
 }
 
 void Simulation::switchToModel(int modelNum){
+	const SceneConfig* scene = findScene(modelNum);
+	if (scene == NULL)
+		return;
+
 	currentModel = modelNum;
 	pendingModel = modelNum;	// keep in sync or simulationStep() switches back
-	switch (modelNum){
-	case BOID_SIMPLE:
-		simParams.numBodies = NUM_BOIDS_SIMPLE;
-		simParams.wAlignment = WEIGHT_ALIGNMENT;
-		simParams.wCohesion = WEIGHT_COHESION;
-		simParams.wSeparation = WEIGHT_SEPARATION;
-		simParams.wOwn = WEIGHT_OWN;
-		simParams.maxVel = MAX_VEL_SIMPLE;
-		simParams.maxVelCor = MAX_VEL_COR_SIMPLE;
-		simParams.gridSize = make_uint3(GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z);
-		simParams.numCells = GRID_SIZE_X * GRID_SIZE_Y * GRID_SIZE_Z;
-		restart(currentModel);
-		GFX::getInstance().setCam(CAMERA_PRESET_STANDARD);
-		break;
-	case BOID_GRID:
-		simParams.numBodies = NUM_BOIDS_GRID;
-		simParams.wAlignment = WEIGHT_ALIGNMENT_GRID;
-		simParams.wCohesion = WEIGHT_COHESION_GRID;
-		simParams.wSeparation = WEIGHT_SEPARATION_GRID;
-		simParams.wOwn = WEIGHT_OWN_GRID;
-		simParams.maxVel = MAX_VEL_GRID;
-		simParams.maxVelCor = MAX_VEL_COR_GRID;
-		simParams.gridSize = make_uint3(GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z);
-		simParams.numCells = GRID_SIZE_X * GRID_SIZE_Y * GRID_SIZE_Z;
-		restart(currentModel);
-		GFX::getInstance().setCam(CAMERA_PRESET_STANDARD);
-		break;
-	case BOID_SH:
-		simParams.numBodies = NUM_BOIDS_SIMPLE;
-		simParams.wAlignment = WEIGHT_ALIGNMENT_SH;
-		simParams.wCohesion = WEIGHT_COHESION_SH;
-		simParams.wSeparation = WEIGHT_SEPARATION_SH;
-		simParams.wOwn = WEIGHT_OWN_SH;
-		simParams.maxVel = MAX_VEL_GRID;
-		simParams.maxVelCor = MAX_VEL_COR_GRID;
-		simParams.gridSize = make_uint3(GRID_SIZE_X_SH, GRID_SIZE_Y_SH, GRID_SIZE_Z_SH);
-		simParams.numCells = GRID_SIZE_X_SH * GRID_SIZE_Y_SH * GRID_SIZE_Z_SH;
-		restart(currentModel);
-		GFX::getInstance().setCam(CAMERA_PRESET_SH);
-		break;
-	case BOID_GRID_2D:
-		simParams.numBodies = NUM_BOIDS_GRID_2D;
-		simParams.wAlignment = WEIGHT_ALIGNMENT_GRID_2D;
-		simParams.wCohesion = WEIGHT_COHESION_GRID_2D;
-		simParams.wSeparation = WEIGHT_SEPARATION_GRID_2D;
-		simParams.wOwn = WEIGHT_OWN_GRID_2D;
-		simParams.maxVel = MAX_VEL_GRID;
-		simParams.maxVelCor = MAX_VEL_COR_GRID;
-		simParams.gridSize = make_uint3(GRID_SIZE_X_GRID_2D, GRID_SIZE_Y_GRID_2D, GRID_SIZE_Z_GRID_2D);
-		simParams.numCells = GRID_SIZE_X_GRID_2D * GRID_SIZE_Y_GRID_2D * GRID_SIZE_Z_GRID_2D;
-		restart(currentModel);
-		GFX::getInstance().setCam(CAMERA_PRESET_2D_FAR);
-		break;
-	case BOID_SH_2D:
-		simParams.numBodies = NUM_BOIDS_SIMPLE;
-		simParams.wAlignment = WEIGHT_ALIGNMENT_SH_2D;
-		simParams.wCohesion = WEIGHT_COHESION_SH_2D;
-		simParams.wSeparation = WEIGHT_SEPARATION_SH_2D;
-		simParams.wOwn = WEIGHT_OWN_SH_2D;
-		simParams.maxVel = MAX_VEL_GRID;
-		simParams.maxVelCor = MAX_VEL_COR_GRID;
-		simParams.gridSize = make_uint3(GRID_SIZE_X_SH_2D, GRID_SIZE_Y_SH_2D, GRID_SIZE_Z_SH_2D);
-		simParams.numCells = GRID_SIZE_X_SH_2D * GRID_SIZE_Y_SH_2D * GRID_SIZE_Z_SH_2D;
-		restart(currentModel);
-		GFX::getInstance().setCam(CAMERA_PRESET_2D);
-		break;
-	case BOID_SH_WAY1:
-		simParams.numBodies = NUM_BOIDS_SIMPLE;
-		simParams.wAlignment = WEIGHT_ALIGNMENT_SH_WAY1;
-		simParams.wCohesion = WEIGHT_COHESION_SH_WAY1;
-		simParams.wSeparation = WEIGHT_SEPARATION_SH_WAY1;
-		simParams.wOwn = WEIGHT_OWN_SH_WAY1;
-		simParams.maxVel = MAX_VEL_GRID;
-		simParams.maxVelCor = MAX_VEL_COR_GRID;
-		simParams.gridSize = make_uint3(GRID_SIZE_X_SH_WAY1, GRID_SIZE_Y_SH_WAY1, GRID_SIZE_Z_SH_WAY1);
-		simParams.numCells = GRID_SIZE_X_SH_WAY1 * GRID_SIZE_Y_SH_WAY1 * GRID_SIZE_Z_SH_WAY1;
-		simParams.wPath = WEIGHT_GOAL_SH_WAY1;
-		restart(currentModel);
-		GFX::getInstance().setCam(CAMERA_PRESET_SH_SMALL);
-		break;
-	case BOID_SH_WAY2:
-		simParams.numBodies = NUM_BOIDS_SIMPLE;
-		simParams.wAlignment = WEIGHT_ALIGNMENT_SH_WAY1;
-		simParams.wCohesion = WEIGHT_COHESION_SH_WAY1;
-		simParams.wSeparation = WEIGHT_SEPARATION_SH_WAY1;
-		simParams.wOwn = WEIGHT_OWN_SH_WAY1;
-		simParams.maxVel = MAX_VEL_GRID;
-		simParams.maxVelCor = MAX_VEL_COR_GRID;
-		simParams.gridSize = make_uint3(GRID_SIZE_X_SH_WAY1, GRID_SIZE_Y_SH_WAY1, GRID_SIZE_Z_SH_WAY1);
-		simParams.numCells = GRID_SIZE_X_SH_WAY1 * GRID_SIZE_Y_SH_WAY1 * GRID_SIZE_Z_SH_WAY1;
-		simParams.wPath = WEIGHT_GOAL_SH_WAY1;
-		restart(currentModel);
-		GFX::getInstance().setCam(CAMERA_PRESET_SH_SMALL);
-		break;
-	case BOID_SH_OBSTACLE:
-		simParams.numBodies = NUM_BOIDS_SIMPLE;
-		simParams.wAlignment = WEIGHT_ALIGNMENT_SH_OBSTACLE;
-		simParams.wCohesion = WEIGHT_COHESION_SH_OBSTACLE;
-		simParams.wSeparation = WEIGHT_SEPARATION_SH_OBSTACLE;
-		simParams.wOwn = WEIGHT_OWN_SH_OBSTACLE;
-		simParams.maxVel = MAX_VEL_GRID;
-		simParams.maxVelCor = MAX_VEL_COR_GRID;
-		simParams.gridSize = make_uint3(GRID_SIZE_X_SH_OBSTACLE, GRID_SIZE_Y_SH_OBSTACLE, GRID_SIZE_Z_SH_OBSTACLE);
-		simParams.numCells = GRID_SIZE_X_SH_OBSTACLE * GRID_SIZE_Y_SH_OBSTACLE * GRID_SIZE_Z_SH_OBSTACLE;
-		simParams.wPath = WEIGHT_GOAL_SH_OBSTACLE;
-		restart(currentModel);
-		GFX::getInstance().setCam(CAMERA_PRESET_SH_SMALL);
-		break;
-	case BOID_SH_OBSTACLE_COMBINED:
-		simParams.numBodies = NUM_BOIDS_SIMPLE;
-		simParams.wAlignment = WEIGHT_ALIGNMENT_SH_OBSTACLE;
-		simParams.wCohesion = WEIGHT_COHESION_SH_OBSTACLE;
-		simParams.wSeparation = WEIGHT_SEPARATION_SH_OBSTACLE;
-		simParams.wOwn = WEIGHT_OWN_SH_OBSTACLE;
-		simParams.maxVel = MAX_VEL_GRID;
-		simParams.maxVelCor = MAX_VEL_COR_GRID;
-		simParams.gridSize = make_uint3(GRID_SIZE_X_SH_OBSTACLE, GRID_SIZE_Y_SH_OBSTACLE, GRID_SIZE_Z_SH_OBSTACLE);
-		simParams.numCells = GRID_SIZE_X_SH_OBSTACLE * GRID_SIZE_Y_SH_OBSTACLE * GRID_SIZE_Z_SH_OBSTACLE;
-		simParams.wPath = WEIGHT_GOAL_SH_OBSTACLE;
-		restart(currentModel);
-		GFX::getInstance().setCam(CAMERA_PRESET_SH_SMALL);
-		break;
-	case BOID_SH_OBSTACLE_TUNNEL:
-		simParams.numBodies = NUM_BOIDS_SIMPLE;
-		simParams.wAlignment = WEIGHT_ALIGNMENT_SH_OBSTACLE;
-		simParams.wCohesion = WEIGHT_COHESION_SH_OBSTACLE;
-		simParams.wSeparation = WEIGHT_SEPARATION_SH_OBSTACLE;
-		simParams.wOwn = WEIGHT_OWN_SH_OBSTACLE;
-		simParams.maxVel = MAX_VEL_GRID;
-		simParams.maxVelCor = MAX_VEL_COR_GRID;
-		simParams.gridSize = make_uint3(GRID_SIZE_X_SH_OBSTACLE, GRID_SIZE_Y_SH_OBSTACLE, GRID_SIZE_Z_SH_OBSTACLE);
-		simParams.numCells = GRID_SIZE_X_SH_OBSTACLE * GRID_SIZE_Y_SH_OBSTACLE * GRID_SIZE_Z_SH_OBSTACLE;
-		simParams.wPath = WEIGHT_GOAL_SH_OBSTACLE;
-		restart(currentModel);
-		GFX::getInstance().setCam(CAMERA_PRESET_SH_SMALL);
-		break;
-	}
+	currentSceneName = scene->name;
+
+	simParams.numBodies = scene->numBoids;
+	simParams.wAlignment = scene->wAlignment;
+	simParams.wCohesion = scene->wCohesion;
+	simParams.wSeparation = scene->wSeparation;
+	simParams.wOwn = scene->wOwn;
+	simParams.wPath = scene->wPath;
+	simParams.maxVel = scene->maxVel;
+	simParams.maxVelCor = scene->maxVelCor;
+	simParams.gridSize = make_uint3(scene->gridX, scene->gridY, scene->gridZ);
+	simParams.numCells = scene->gridX * scene->gridY * scene->gridZ;
+
+	restart(currentModel);
+	GFX::getInstance().setCam(scene->cameraPreset);
 }
 
 void Simulation::keyPress(unsigned char key){
@@ -451,6 +314,8 @@ void Simulation::keyPress(unsigned char key){
 		break;
 	case '+':	//increase number of boids
 		simParams.numBodies = simParams.numBodies * 2;
+		if (simParams.numBodies >= NUM_BOIDS_MAX)
+			simParams.numBodies = NUM_BOIDS_MAX;
 		restart(currentModel);
 		break;
 	case '-':	//decrease number of boids
@@ -489,185 +354,111 @@ std::vector<Renderable*> Simulation::getRenderList(){
 	return renderList;
 }
 
+//boid group colors used by the test placements
+static const Vec4 COLOR_GREEN(0.17f, 0.37f, 0.21f, 1.f);
+static const Vec4 COLOR_RED(0.69f, 0.12f, 0.12f, 1.f);
+static const Vec4 COLOR_YELLOW(.77f, 0.59f, 0.09f, 1.f);
+static const Vec4 COLOR_BLUE(0.09f, 0.59f, .77f, 1.f);
+
+//turn a position into a goal entry (w = 0)
+static inline Vec4 goalAt(const Vec4& p){
+	return Vec4(p.x, p.y, p.z, 0.0f);
+}
+
+Vec4 Simulation::clusterPos(float fx, float fy, float fz, float r){
+	float theta = randFloat(0.0f, CL_M_PI);
+	float phi = randFloat(0.0f, 2 * CL_M_PI);
+	float x = CELL_SIZE_X * simParams.gridSize.x * fx + randFloat(0.0f, r * CELL_SIZE_X) * sin(theta) * cos(phi);
+	float y = CELL_SIZE_Y * simParams.gridSize.y * fy + randFloat(0.0f, r * CELL_SIZE_Y) * sin(theta) * sin(phi);
+	float z = CELL_SIZE_Z * simParams.gridSize.z * fz + randFloat(0.0f, r * CELL_SIZE_Z) * cos(theta);
+	return Vec4(x, y, z, 1.f);
+}
+
 void Simulation::createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color){
-	Vec4 goalT; int j = 0;
+	const float r = TEST_SETUP_RADIUS / 2;
+	const float maxVel = simParams.maxVel;
 
 	switch(currentInitPlacement){
-	case 0:
-		for (int i = 0; i < simParams.numBodies; i++)
+	case 0:		//random placement inside the cube, goal = own start position
+		for (int i = 0; i < (int)simParams.numBodies; i++)
 		{
 			float x = randFloat(2.f * CELL_SIZE_X, simParams.gridSize.x * CELL_SIZE_X - CELL_SIZE_X * 2.f);
 			float z = randFloat(2.f * CELL_SIZE_Z, simParams.gridSize.z * CELL_SIZE_Z - CELL_SIZE_Z * 2.f);
 			float y = randFloat(2.f * CELL_SIZE_Y, simParams.gridSize.y * CELL_SIZE_Y - CELL_SIZE_Y * 2.f);
-			float w = 1.f;
-			(*pos)[i] = Vec4(x, y, z, w);
-			(*vel)[i] = Vec4(randFloat(-simParams.maxVel, simParams.maxVel), randFloat(-simParams.maxVel, simParams.maxVel), randFloat(-simParams.maxVel, simParams.maxVel), 0.f);
+			(*pos)[i] = Vec4(x, y, z, 1.f);
+			(*vel)[i] = Vec4(randFloat(-maxVel, maxVel), randFloat(-maxVel, maxVel), randFloat(-maxVel, maxVel), 0.f);
 			(*goal)[i] = Vec4(x, y, z, 0.0f);
 			(*color)[i] = BOID_COLOR;
 		}
 		break;
-	case 1:
-		for (int i = 0; i < simParams.numBodies; i += 2)
+	case 1:		//two groups moving towards each other, goals swapped pairwise
+		for (int i = 0; i < (int)simParams.numBodies; i += 2)
 		{
-			float theta = randFloat(0.0f, CL_M_PI);
-			float phi = randFloat(0.0f, 2 * CL_M_PI);
-			float r = TEST_SETUP_RADIUS/2;
-			
-			float x = CELL_SIZE_X * simParams.gridSize.x / 2 + randFloat(0.0f, r * CELL_SIZE_X) * sin(theta) * cos(phi);
-			float y = CELL_SIZE_Y * simParams.gridSize.y / 2 + randFloat(0.0f, r * CELL_SIZE_Y) * sin(theta) * sin(phi);
-			float z = CELL_SIZE_Z * simParams.gridSize.z * 1 / 4 + randFloat(0.0f, r * CELL_SIZE_Z) * cos(theta);
-			float w = 1.f;
-			(*pos)[i] = Vec4(x, y, z, w);
-			(*vel)[i] = Vec4(0.0f, 0.0f, randFloat(0.0f, simParams.maxVel), 0.0f);
-			(*goal)[i + 1] = Vec4(x, y, z, 0.0f);
-			(*color)[i] = Vec4(0.17f, 0.37f, 0.21f, 1.f);
+			(*pos)[i] = clusterPos(.5f, .5f, .25f, r);
+			(*vel)[i] = Vec4(0.0f, 0.0f, randFloat(0.0f, maxVel), 0.0f);
+			(*color)[i] = COLOR_GREEN;
 
-			theta = randFloat(0.0f, CL_M_PI);
-			phi = randFloat(0.0f, 2 * CL_M_PI);
+			(*pos)[i + 1] = clusterPos(.5f, .5f, .75f, r);
+			(*vel)[i + 1] = Vec4(0.0f, 0.0f, randFloat(-maxVel, 0.0f), 0.0f);
+			(*color)[i + 1] = COLOR_RED;
 
-			x = CELL_SIZE_X * simParams.gridSize.x / 2 + randFloat(0.0f, r * CELL_SIZE_X) * sin(theta) * cos(phi);
-			y = CELL_SIZE_Y * simParams.gridSize.y / 2 + randFloat(0.0f, r * CELL_SIZE_Y) * sin(theta) * sin(phi);
-			z = CELL_SIZE_Z * simParams.gridSize.z * 3 / 4 + randFloat(0.0f, r * CELL_SIZE_Z) * cos(theta);
-			w = 1.f;
-			(*pos)[i + 1] = Vec4(x, y, z, w);
-			(*vel)[i + 1] = Vec4(0.0f, 0.0f, randFloat(-simParams.maxVel, 0.0f), 0.0f);
-			(*goal)[i] = Vec4(x, y, z, 0.0f);
-			(*color)[i + 1] = Vec4(0.69f, 0.12f, 0.12f, 1.0f);
+			(*goal)[i] = goalAt((*pos)[i + 1]);
+			(*goal)[i + 1] = goalAt((*pos)[i]);
 		}
 		break;
-	case 2:
-		goalT = Vec4(CELL_SIZE_X * simParams.gridSize.x / 2, CELL_SIZE_Y * simParams.gridSize.y / 2, CELL_SIZE_Z * simParams.gridSize.z * 3 / 4, 0.0f);
+	case 2:		//small group and large group moving towards each other's center
+	{
+		Vec4 goalFar = goalAt(clusterPos(.5f, .5f, .75f, 0.f));
+		Vec4 goalNear = goalAt(clusterPos(.5f, .5f, .25f, 0.f));
 
-		for (j; j < simParams.numBodies / 8; j++)
-		{
-			float theta = randFloat(0.0f, CL_M_PI);
-			float phi = randFloat(0.0f, 2 * CL_M_PI);
-			float r = TEST_SETUP_RADIUS / 4;
-
-			float x = CELL_SIZE_X * simParams.gridSize.x / 2 + randFloat(0.0f, r * CELL_SIZE_X) * sin(theta) * cos(phi);
-			float y = CELL_SIZE_Y * simParams.gridSize.y / 2 + randFloat(0.0f, r * CELL_SIZE_Y) * sin(theta) * sin(phi);
-			float z = CELL_SIZE_Z * simParams.gridSize.z * 1 / 4 + randFloat(0.0f, r * CELL_SIZE_Z) * cos(theta);
-			float w = 1.f;
-			(*pos)[j] = Vec4(x, y, z, w);
-			(*vel)[j] = Vec4(0.0f, 0.0f, randFloat(0.0f, simParams.maxVel), 0.0f);
-			(*goal)[j] = Vec4(goalT.x, goalT.y, goalT.z, goalT.w);
-			(*color)[j] = Vec4(0.17f, 0.37f, 0.21f, 1.f);
-		}
-
-		goalT = Vec4(CELL_SIZE_X * simParams.gridSize.x / 2, CELL_SIZE_Y * simParams.gridSize.y / 2, CELL_SIZE_Z * simParams.gridSize.z / 4, 0.0f);
-
-		for (j; j < simParams.numBodies; j++){
-			float theta = randFloat(0.0f, CL_M_PI);
-			float phi = randFloat(0.0f, 2 * CL_M_PI);
-			float r = TEST_SETUP_RADIUS;
-
-			float x = CELL_SIZE_X * simParams.gridSize.x / 2 + randFloat(0.0f, r * CELL_SIZE_X) * sin(theta) * cos(phi);
-			float y = CELL_SIZE_Y * simParams.gridSize.y / 2 + randFloat(0.0f, r * CELL_SIZE_Y) * sin(theta) * sin(phi);
-			float z = CELL_SIZE_Z * simParams.gridSize.z * 3 / 4 + randFloat(0.0f, r * CELL_SIZE_Z) * cos(theta);
-			float w = 1.f;
-			(*pos)[j] = Vec4(x, y, z, w);
-			(*vel)[j] = Vec4(0.0f, 0.0f, randFloat(-simParams.maxVel, 0.0f), 0.0f);
-			(*goal)[j] = Vec4(goalT.x, goalT.y, goalT.z, goalT.w);
-			(*color)[j] = Vec4(0.69f, 0.12f, 0.12f, 1.0f);
+		for (int j = 0; j < (int)simParams.numBodies; j++){
+			bool small_ = j < (int)simParams.numBodies / 8;
+			(*pos)[j] = small_ ? clusterPos(.5f, .5f, .25f, TEST_SETUP_RADIUS / 4)
+			                   : clusterPos(.5f, .5f, .75f, TEST_SETUP_RADIUS);
+			(*vel)[j] = small_ ? Vec4(0.0f, 0.0f, randFloat(0.0f, maxVel), 0.0f)
+			                   : Vec4(0.0f, 0.0f, randFloat(-maxVel, 0.0f), 0.0f);
+			(*goal)[j] = small_ ? goalFar : goalNear;
+			(*color)[j] = small_ ? COLOR_GREEN : COLOR_RED;
 		}
 		break;
-
-	case 3:
-		for (int i = 0; i < simParams.numBodies; i += 4)
+	}
+	case 3:		//four groups converging at the center, goals swapped pairwise
+		for (int i = 0; i < (int)simParams.numBodies; i += 4)
 		{
-			float theta = randFloat(0.0f, CL_M_PI);
-			float phi = randFloat(0.0f, 2 * CL_M_PI);
-			float r = TEST_SETUP_RADIUS / 2;
+			(*pos)[i] = clusterPos(.5f, .5f, .25f, r);
+			(*vel)[i] = Vec4(0.0f, 0.0f, randFloat(0.0f, maxVel), 0.0f);
+			(*color)[i] = COLOR_RED;
 
-			float x = CELL_SIZE_X * simParams.gridSize.x / 2 + randFloat(0.0f, r * CELL_SIZE_X) * sin(theta) * cos(phi);
-			float y = CELL_SIZE_Y * simParams.gridSize.y / 2 + randFloat(0.0f, r * CELL_SIZE_Y) * sin(theta) * sin(phi);
-			float z = CELL_SIZE_Z * simParams.gridSize.z * 1 / 4 + randFloat(0.0f, r * CELL_SIZE_Z) * cos(theta);
-			float w = 1.f;
-			(*pos)[i] = Vec4(x, y, z, w);
-			(*vel)[i] = Vec4(0.0f, 0.0f, randFloat(0.0f, simParams.maxVel), 0.0f);
-			(*goal)[i + 1] = Vec4(x, y, z, 0.0f);
-			(*color)[i] = Vec4(0.69f, 0.12f, 0.12f, 1.0f);
+			(*pos)[i + 1] = clusterPos(.5f, .5f, .75f, r);
+			(*vel)[i + 1] = Vec4(0.0f, 0.0f, randFloat(-maxVel, 0.0f), 0.0f);
+			(*color)[i + 1] = COLOR_GREEN;
 
-			theta = randFloat(0.0f, CL_M_PI);
-			phi = randFloat(0.0f, 2 * CL_M_PI);
+			(*pos)[i + 2] = clusterPos(.25f, .5f, .5f, r);
+			(*vel)[i + 2] = Vec4(randFloat(0.0f, maxVel), 0.0f, 0.0f, 0.0f);
+			(*color)[i + 2] = COLOR_YELLOW;
 
-			x = CELL_SIZE_X * simParams.gridSize.x / 2 + randFloat(0.0f, r * CELL_SIZE_X) * sin(theta) * cos(phi);
-			y = CELL_SIZE_Y * simParams.gridSize.y / 2 + randFloat(0.0f, r * CELL_SIZE_Y) * sin(theta) * sin(phi);
-			z = CELL_SIZE_Z * simParams.gridSize.z * 3 / 4 + randFloat(0.0f, r * CELL_SIZE_Z) * cos(theta);
-			w = 1.f;
-			(*pos)[i + 1] = Vec4(x, y, z, w);
-			(*vel)[i + 1] = Vec4(0.0f, 0.0f, randFloat(-simParams.maxVel, 0.0f), 0.0f);
-			(*goal)[i] = Vec4(x, y, z, 0.0f);
-			(*color)[i + 1] = Vec4(0.17f, 0.37f, 0.21f, 1.f);
+			(*pos)[i + 3] = clusterPos(.75f, .5f, .5f, r);
+			(*vel)[i + 3] = Vec4(randFloat(-maxVel, 0.0f), 0.0f, 0.0f, 0.0f);
+			(*color)[i + 3] = COLOR_BLUE;
 
-			theta = randFloat(0.0f, CL_M_PI);
-			phi = randFloat(0.0f, 2 * CL_M_PI);
-
-			x = CELL_SIZE_X * simParams.gridSize.x / 4 + randFloat(0.0f, r * CELL_SIZE_X) * sin(theta) * cos(phi);
-			y = CELL_SIZE_Y * simParams.gridSize.y / 2 + randFloat(0.0f, r * CELL_SIZE_Y) * sin(theta) * sin(phi);
-			z = CELL_SIZE_Z * simParams.gridSize.z / 2 + randFloat(0.0f, r * CELL_SIZE_Z) * cos(theta);
-			w = 1.f;
-			(*pos)[i + 2] = Vec4(x, y, z, w);
-			(*vel)[i + 2] = Vec4(randFloat( 0.0f, simParams.maxVel), 0.0f, 0.0f, 0.0f);
-			(*goal)[i + 3] = Vec4(x, y, z, 0.0f);
-			(*color)[i + 2] = Vec4(.77f, 0.59f, 0.09f, 1.0f);
-			theta = randFloat(0.0f, CL_M_PI);
-			phi = randFloat(0.0f, 2 * CL_M_PI);
-
-			x = CELL_SIZE_X * simParams.gridSize.x * 3/ 4 + randFloat(0.0f, r * CELL_SIZE_X) * sin(theta) * cos(phi);
-			y = CELL_SIZE_Y * simParams.gridSize.y / 2 + randFloat(0.0f, r * CELL_SIZE_Y) * sin(theta) * sin(phi);
-			z = CELL_SIZE_Z * simParams.gridSize.z / 2 + randFloat(0.0f, r * CELL_SIZE_Z) * cos(theta);
-			w = 1.f;
-			(*pos)[i + 3] = Vec4(x, y, z, w);
-			(*vel)[i + 3] = Vec4(randFloat(-simParams.maxVel, 0.0f), 0.0f, 0.0f , 0.0f);
-			(*goal)[i + 2] = Vec4(x, y, z, 0.0f);
-			(*color)[i + 3] = Vec4(0.09f, 0.59f, .77f, 1.0f);
+			(*goal)[i] = goalAt((*pos)[i + 1]);
+			(*goal)[i + 1] = goalAt((*pos)[i]);
+			(*goal)[i + 2] = goalAt((*pos)[i + 3]);
+			(*goal)[i + 3] = goalAt((*pos)[i + 2]);
 		}
 		break;
-	case 4:
-		for (int i = 0; i < simParams.numBodies; i += 2)
+	case 4:		//two groups crossing at the center
+		for (int i = 0; i < (int)simParams.numBodies; i += 2)
 		{
-			float theta = randFloat(0.0f, CL_M_PI);
-			float phi = randFloat(0.0f, 2 * CL_M_PI);
-			float r = TEST_SETUP_RADIUS / 2;
+			(*pos)[i] = clusterPos(.5f, .5f, .25f, r);
+			(*vel)[i] = Vec4(0.0f, 0.0f, randFloat(0.0f, maxVel), 0.0f);
+			(*goal)[i] = goalAt(clusterPos(.5f, .5f, .75f, r));
+			(*color)[i] = COLOR_GREEN;
 
-			float x = CELL_SIZE_X * simParams.gridSize.x / 2 + randFloat(0.0f, r * CELL_SIZE_X) * sin(theta) * cos(phi);
-			float y = CELL_SIZE_Y * simParams.gridSize.y / 2 + randFloat(0.0f, r * CELL_SIZE_Y) * sin(theta) * sin(phi);
-			float z = CELL_SIZE_Z * simParams.gridSize.z * 1 / 4 + randFloat(0.0f, r * CELL_SIZE_Z) * cos(theta);
-			float w = 1.f;
-			(*pos)[i] = Vec4(x, y, z, w);
-			(*vel)[i] = Vec4(0.0f, 0.0f, randFloat(0.0f, simParams.maxVel), 0.0f);
-			(*color)[i] = Vec4(0.17f, 0.37f, 0.21f, 1.f);
-
-			theta = randFloat(0.0f, CL_M_PI);
-			phi = randFloat(0.0f, 2 * CL_M_PI);
-
-			x = CELL_SIZE_X * simParams.gridSize.x / 2 + randFloat(0.0f, r * CELL_SIZE_X) * sin(theta) * cos(phi);
-			y = CELL_SIZE_Y * simParams.gridSize.y / 2 + randFloat(0.0f, r * CELL_SIZE_Y) * sin(theta) * sin(phi);
-			z = CELL_SIZE_Z * simParams.gridSize.z * 3 / 4 + randFloat(0.0f, r * CELL_SIZE_Z) * cos(theta);
-			w = 1.f;
-
-			(*goal)[i] = Vec4(x, y, z, 0.0f);
-
-			theta = randFloat(0.0f, CL_M_PI);
-			phi = randFloat(0.0f, 2 * CL_M_PI);
-
-			x = CELL_SIZE_X * simParams.gridSize.x * 3 / 4 + randFloat(0.0f, r * CELL_SIZE_X) * sin(theta) * cos(phi);
-			y = CELL_SIZE_Y * simParams.gridSize.y / 2 + randFloat(0.0f, r * CELL_SIZE_Y) * sin(theta) * sin(phi);
-			z = CELL_SIZE_Z * simParams.gridSize.z / 2 + randFloat(0.0f, r * CELL_SIZE_Z) * cos(theta);
-			w = 1.f;
-			(*pos)[i + 1] = Vec4(x, y, z, w);
-			(*vel)[i + 1] = Vec4(randFloat(-simParams.maxVel,0.0f), 0.0f, 0.0f, 0.0f);
-			(*color)[i + 1] = Vec4(0.69f, 0.12f, 0.12f, 1.0f);
-
-			theta = randFloat(0.0f, CL_M_PI);
-			phi = randFloat(0.0f, 2 * CL_M_PI);
-
-			x = CELL_SIZE_X * simParams.gridSize.x * 1 / 4 + randFloat(0.0f, r * CELL_SIZE_X) * sin(theta) * cos(phi);
-			y = CELL_SIZE_Y * simParams.gridSize.y / 2 + randFloat(0.0f, r * CELL_SIZE_Y) * sin(theta) * sin(phi);
-			z = CELL_SIZE_Z * simParams.gridSize.z / 2 + randFloat(0.0f, r * CELL_SIZE_Z) * cos(theta);
-
-			(*goal)[i + 1] = Vec4(x, y, z, 0.0f);
+			(*pos)[i + 1] = clusterPos(.75f, .5f, .5f, r);
+			(*vel)[i + 1] = Vec4(randFloat(-maxVel, 0.0f), 0.0f, 0.0f, 0.0f);
+			(*goal)[i + 1] = goalAt(clusterPos(.25f, .5f, .5f, r));
+			(*color)[i + 1] = COLOR_RED;
 		}
 		break;
 	}

@@ -160,16 +160,7 @@
     <None Include="kernels\bitonic_sort.cl">
       <Filter>openCL kernel</Filter>
     </None>
-    <None Include="kernels\boidModelGrid_2D_kernel_v1.cl">
-      <Filter>openCL kernel</Filter>
-    </None>
     <None Include="kernels\boidModelGrid_2D_kernel_v2.cl">
-      <Filter>openCL kernel</Filter>
-    </None>
-    <None Include="kernels\boidModelGrid_kernel_v1.cl">
-      <Filter>openCL kernel</Filter>
-    </None>
-    <None Include="kernels\boidModelGrid_kernel_v2.cl">
       <Filter>openCL kernel</Filter>
     </None>
     <None Include="kernels\boidModelGrid_kernel_v3.cl">
@@ -179,9 +170,6 @@
       <Filter>openCL kernel</Filter>
     </None>
     <None Include="kernels\boidModelSH_kernel_v1.cl">
-      <Filter>openCL kernel</Filter>
-    </None>
-    <None Include="kernels\boidModelSH_kernel_v2.cl">
       <Filter>openCL kernel</Filter>
     </None>
     <None Include="kernels\boidModelSHCombined_kernel_v1.cl">
@@ -199,13 +187,7 @@
     <None Include="kernels\boidModelSHWay2_kernel_v1.cl">
       <Filter>openCL kernel</Filter>
     </None>
-    <None Include="kernels\boidModelSimple_kernel_v1.cl">
-      <Filter>openCL kernel</Filter>
-    </None>
     <None Include="kernels\boidModelSimple_kernel_v2.cl">
-      <Filter>openCL kernel</Filter>
-    </None>
-    <None Include="kernels\boidModelSimple_kernel_v3.cl">
       <Filter>openCL kernel</Filter>
     </None>
     <None Include="shaders\boid.f.glsl">
