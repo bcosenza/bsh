@@ -35,10 +35,12 @@
 #include <CL/cl.hpp>
 
 //OpenGL matrix/vector manipulation header lib
-#include <glm.hpp>
-#include <gtc/matrix_transform.hpp>
-#include <gtc/type_ptr.hpp>
-#include <gtx/rotate_vector.hpp>
+//GLM_ENABLE_EXPERIMENTAL is required by gtx/ headers since GLM 0.9.9
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/rotate_vector.hpp>
 
 const std::string kernel_path = "../kernels/";
 const std::string shader_path = "../shaders/";
