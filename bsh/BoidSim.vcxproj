@@ -205,7 +205,7 @@
     <ClCompile Include="Column.cpp" />
     <ClCompile Include="gfx.cpp" />
     <ClCompile Include="LogFile.cpp" />
-    <ClCompile Include="main.cpp" />
+    <ClCompile Include="main_win.cpp" />
     <ClCompile Include="OverlayText.cpp" />
     <ClCompile Include="Shader.cpp" />
     <ClCompile Include="Shader_utils.cpp" />
