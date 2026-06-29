@@ -42,5 +42,5 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/rotate_vector.hpp>
 
-const std::string kernel_path = "../kernels/";
+const std::string kernel_path = "../cl/";
 const std::string shader_path = "../shaders/";

@@ -12,9 +12,9 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
-# The executable runs with ../kernels and ../shaders as its relative asset
-# paths (see common.h), so place it in <repo>/bin like the old Makefile did.
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
+# Built with the usual out-of-source flow (mkdir build && cd build && cmake ..),
+# so the executable lands in build/. common.h reaches cl/ and shaders/ via
+# the ../ relative paths, which resolve from build/ to the repo root.
 
 # --- dependencies ---
 find_package(OpenGL REQUIRED)
@@ -38,7 +38,6 @@ endif()
 set(SOURCES
     Simulation.cpp
     gfx.cpp
-    CLHelper.cpp
     LogFile.cpp
     Shader.cpp
     Shader_utils.cpp
@@ -48,17 +47,19 @@ set(SOURCES
     Skybox.cpp
     Column.cpp
     Tunnel.cpp
-    BoidModelSimple.cpp
-    BoidModelGridBase.cpp
-    BoidModelGrid.cpp
-    BoidModelGrid_2D.cpp
-    BoidModelSH.cpp
-    BoidModelSH_2D.cpp
-    boidModelSHWay1.cpp
-    BoidModelSHWay2.cpp
-    BoidModelSHCombined.cpp
-    boidModelSHObstacle.cpp
-    BoidModelSHObstacleTunnel.cpp)
+    # --- OpenCL backend (host code that invokes the kernels, see cl/) ---
+    cl/CLHelper.cpp
+    cl/BoidModelSimple.cpp
+    cl/BoidModelGridBase.cpp
+    cl/BoidModelGrid.cpp
+    cl/BoidModelGrid_2D.cpp
+    cl/BoidModelSH.cpp
+    cl/BoidModelSH_2D.cpp
+    cl/boidModelSHWay1.cpp
+    cl/BoidModelSHWay2.cpp
+    cl/BoidModelSHCombined.cpp
+    cl/boidModelSHObstacle.cpp
+    cl/BoidModelSHObstacleTunnel.cpp)
 
 if(WIN32)
     list(APPEND SOURCES main_win.cpp)
@@ -72,6 +73,7 @@ add_executable(boidSim ${SOURCES})
 # removed deprecated cl.hpp to the modern opencl.hpp (used on both platforms)
 target_include_directories(boidSim PRIVATE
     ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/cl
     ${CMAKE_SOURCE_DIR}/compat)
 
 target_link_libraries(boidSim PRIVATE
@@ -86,8 +88,9 @@ if(NOT MSVC)
     target_compile_options(boidSim PRIVATE -Wall -Wno-deprecated-declarations)
 endif()
 
-# --- runtime assets next to the executable (kernels/ and shaders/ are reached
-# --- via the ../ relative paths in common.h and stay at the repo root) ---
+# --- copy the runtime assets the program opens by its own filename (textures,
+# --- fonts) next to the executable; cl/ and shaders/ stay at the repo
+# --- root and are reached via the ../ relative paths in common.h ---
 add_custom_command(TARGET boidSim POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/textures $<TARGET_FILE_DIR:boidSim>/textures
