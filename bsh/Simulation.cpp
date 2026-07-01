@@ -1,5 +1,10 @@
 #include "common.h"
 #include "Simulation.h"
+#ifdef USE_SYCL
+#include "BoidModelSimpleSYCL.h"   // SYCL build ships only the Simple scene
+#else
+#include "BoidModelCL.h"           // concrete OpenCL models constructed in createModel()
+#endif
 #include "vectorTypes.h"
 #include "gfx.h"
 #include <math.h>
@@ -120,12 +125,18 @@ Simulation::Simulation() {
 	createData(&pos, &vel, &goal, &color);
 
 	logFile = new LogFile("OCL Boid ");
+#ifndef USE_SYCL
 	clHelper = new CLHelper(logFile);
+#endif
 
 	currentModel = BOID_SIMPLE;
 	pendingModel = BOID_SIMPLE;
 	currentSceneName = findScene(BOID_SIMPLE)->name;
+#ifdef USE_SYCL
+	boidModel = new BoidModelSimpleSYCL(pos, vel, &simParams);
+#else
 	boidModel = new BoidModelSimple(clHelper, pos, vel, &simParams);
+#endif
 	
 	worldBox = new WorldBox(simParams.gridSize.x, TRUE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
 	worldGround = new WorldGround(FALSE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
@@ -214,6 +225,10 @@ void Simulation::columnObstacleData(std::vector<Vec4>* cor, std::vector<unsigned
 }
 
 BoidModel* Simulation::createModel(int modelNum){
+#ifdef USE_SYCL
+	// only the Simple model is ported to SYCL
+	return new BoidModelSimpleSYCL(pos, vel, &simParams);
+#else
 	switch (modelNum){
 	case BOID_SIMPLE:	return new BoidModelSimple(clHelper, pos, vel, &simParams);
 	case BOID_GRID:		return new BoidModelGrid(clHelper, pos, vel, &simParams);
@@ -240,6 +255,7 @@ BoidModel* Simulation::createModel(int modelNum){
 	}
 	}
 	return NULL;
+#endif
 }
 
 
@@ -272,6 +288,11 @@ float Simulation::getTimeDiff(){
 }
 
 void Simulation::switchToModel(int modelNum){
+#ifdef USE_SYCL
+	// the SYCL build only ports the Simple model, so it shows a single scene
+	if (modelNum != BOID_SIMPLE)
+		return;
+#endif
 	const SceneConfig* scene = findScene(modelNum);
 	if (scene == NULL)
 		return;

@@ -6,10 +6,10 @@
 // source code.
 
 #include "common.h"
-#include "BoidModel.h"
+#include "BoidModelCL.h"
 
 BoidModelGridBase::BoidModelGridBase(CLHelper* clHlpr, simParams_t* simP, const char* name, bool dblBuffered)
-	: BoidModel(clHlpr)
+	: BoidModelCL(clHlpr)
 {
 	modelName = name;
 	doubleBuffered = dblBuffered;

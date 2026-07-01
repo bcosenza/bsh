@@ -1,5 +1,5 @@
 #include "common.h"
-#include "BoidModel.h"
+#include "BoidModelCL.h"
 
 //place all boids on the fixed Y plane of the 2D world
 static std::vector<Vec4> flattenedPos(std::vector<Vec4> pos, float y){

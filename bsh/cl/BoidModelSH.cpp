@@ -1,5 +1,5 @@
 #include "common.h"
-#include "BoidModel.h"
+#include "BoidModelCL.h"
 
 BoidModelSH::BoidModelSH(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP)
 	: BoidModelSH(clHlpr, pos, vel, simP, "boidModelSH_kernel_v1.cl", "Boid Model SH")

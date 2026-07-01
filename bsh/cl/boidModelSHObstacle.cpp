@@ -1,5 +1,5 @@
 #include "common.h"
-#include "BoidModel.h"
+#include "BoidModelCL.h"
 
 BoidModelSHObstacle::BoidModelSHObstacle(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel,
 	std::vector<Vec4> goal, simParams_t* simP, std::vector<Vec4> cor,

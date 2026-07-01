@@ -11,7 +11,9 @@
 
 #include "common.h"
 #include "vector_types.h"
+#ifndef USE_SYCL
 #include "CLHelper.h"
+#endif
 #include "logFile.h"
 #include "SimParam.h"
 #include "BoidModel.h"
@@ -29,7 +31,9 @@ class Simulation
 {
 private:
 	GLenum error;
+#ifndef USE_SYCL
 	CLHelper* clHelper;
+#endif
 	BoidModel* boidModel;
 	LogFile* logFile;
 	simParams_t simParams;

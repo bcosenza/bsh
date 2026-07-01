@@ -1,5 +1,5 @@
 #include "common.h"
-#include "BoidModel.h"
+#include "BoidModelCL.h"
 
 BoidModelGrid::BoidModelGrid(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP)
 	: BoidModelGrid(clHlpr, pos, vel, simP, "boidModelGrid_kernel_v3.cl", "Boid Model Grid")

@@ -30,9 +30,11 @@
 #include <GL/glew.h>
 #include <GL/freeglut.h>
 
-//OpenCL include
+//OpenCL include (skipped for the SYCL build, which has no OpenCL dependency)
+#ifndef USE_SYCL
 #define CL_USE_DEPRECATED_OPENCL_2_0_APIS
 #include <CL/cl.hpp>
+#endif
 
 //OpenGL matrix/vector manipulation header lib
 //GLM_ENABLE_EXPERIMENTAL is required by gtx/ headers since GLM 0.9.9

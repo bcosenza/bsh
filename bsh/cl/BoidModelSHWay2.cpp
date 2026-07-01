@@ -1,5 +1,5 @@
 #include "common.h"
-#include "BoidModel.h"
+#include "BoidModelCL.h"
 
 BoidModelSHWay2::BoidModelSHWay2(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel,
 	std::vector<Vec4> goal, std::vector<Vec4> color, simParams_t* simP)

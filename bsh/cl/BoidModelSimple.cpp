@@ -1,8 +1,8 @@
 #include "common.h"
-#include "BoidModel.h"
+#include "BoidModelCL.h"
 #include "vectorTypes.h"
 
-BoidModelSimple::BoidModelSimple(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP) : BoidModel(clHlpr)
+BoidModelSimple::BoidModelSimple(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP) : BoidModelCL(clHlpr)
 {
 	simTimeDisc = std::vector<const char*>(5);
 	simTimeDisc[0] = "Boid Model Simple";

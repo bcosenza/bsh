@@ -35,7 +35,8 @@ if(NOT glm_FOUND)
 endif()
 
 # --- sources ---
-set(SOURCES
+# Backend-agnostic app/render layer, shared by both the OpenCL and SYCL builds.
+set(SHARED_SOURCES
     Simulation.cpp
     gfx.cpp
     LogFile.cpp
@@ -46,8 +47,16 @@ set(SOURCES
     WorldGround.cpp
     Skybox.cpp
     Column.cpp
-    Tunnel.cpp
-    # --- OpenCL backend (host code that invokes the kernels, see cl/) ---
+    Tunnel.cpp)
+
+if(WIN32)
+    list(APPEND SHARED_SOURCES main_win.cpp)
+else()
+    list(APPEND SHARED_SOURCES main_linux.cpp)
+endif()
+
+# OpenCL backend: host code that invokes the kernels (see cl/).
+set(OPENCL_SOURCES
     cl/CLHelper.cpp
     cl/BoidModelSimple.cpp
     cl/BoidModelGridBase.cpp
@@ -61,13 +70,24 @@ set(SOURCES
     cl/boidModelSHObstacle.cpp
     cl/BoidModelSHObstacleTunnel.cpp)
 
-if(WIN32)
-    list(APPEND SOURCES main_win.cpp)
-else()
-    list(APPEND SOURCES main_linux.cpp)
-endif()
+# SYCL backend: first port, only the Simple model (see sycl/).
+set(SYCL_SOURCES
+    sycl/BoidModelSimpleSYCL.cpp)
 
-add_executable(boidSim ${SOURCES})
+# Copy the runtime assets a target opens by its own filename (textures, fonts)
+# next to its executable. cl/ and shaders/ stay at the repo root and are reached
+# via the ../ relative paths in common.h.
+function(copy_runtime_assets target)
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/textures $<TARGET_FILE_DIR:${target}>/textures
+        COMMAND ${CMAKE_COMMAND} -E copy
+            ${CMAKE_SOURCE_DIR}/FreeSans.otf ${CMAKE_SOURCE_DIR}/FreeSans.ttf
+            $<TARGET_FILE_DIR:${target}>/)
+endfunction()
+
+# --- OpenCL executable (default build) ---
+add_executable(boidSim ${SHARED_SOURCES} ${OPENCL_SOURCES})
 
 # project headers, plus compat/ for the CL/cl.hpp shim that redirects the
 # removed deprecated cl.hpp to the modern opencl.hpp (used on both platforms)
@@ -88,12 +108,43 @@ if(NOT MSVC)
     target_compile_options(boidSim PRIVATE -Wall -Wno-deprecated-declarations)
 endif()
 
-# --- copy the runtime assets the program opens by its own filename (textures,
-# --- fonts) next to the executable; cl/ and shaders/ stay at the repo
-# --- root and are reached via the ../ relative paths in common.h ---
-add_custom_command(TARGET boidSim POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/textures $<TARGET_FILE_DIR:boidSim>/textures
-    COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_SOURCE_DIR}/FreeSans.otf ${CMAKE_SOURCE_DIR}/FreeSans.ttf
-        $<TARGET_FILE_DIR:boidSim>/)
+# When boidSim is also built with the Intel compiler (dual OpenCL+SYCL configure),
+# silence the vendored stb_image.h narrowing that only clang enforces. The g++
+# build never sees this flag, so it stays unchanged.
+if(CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM")
+    target_compile_options(boidSim PRIVATE -Wno-c++11-narrowing)
+endif()
+
+copy_runtime_assets(boidSim)
+
+# --- SYCL executable (first port: Simple model only) ---
+# Added only when the project is configured with the Intel oneAPI compiler
+# (icpx / IntelLLVM), e.g. cmake -DCMAKE_CXX_COMPILER=icpx .. ; a normal g++
+# configure builds only boidSim and is completely unaffected.
+if(CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM")
+    add_executable(boidSimSYCL ${SHARED_SOURCES} ${SYCL_SOURCES})
+
+    # DPC++ requires C++17 (the OpenCL build stays on the project-wide C++11)
+    set_target_properties(boidSimSYCL PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+
+    # -Wno-c++11-narrowing: the vendored stb_image.h trips clang's stricter
+    # narrowing check that the g++ OpenCL build does not enforce.
+    target_compile_options(boidSimSYCL PRIVATE -fsycl -Wno-c++11-narrowing)
+    target_link_options   (boidSimSYCL PRIVATE -fsycl)
+    target_compile_definitions(boidSimSYCL PRIVATE USE_SYCL)
+
+    # No OpenCL: USE_SYCL drops the <CL/cl.hpp> include and the CLHelper coupling.
+    target_include_directories(boidSimSYCL PRIVATE
+        ${CMAKE_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/sycl
+        ${CMAKE_SOURCE_DIR}/compat)
+
+    target_link_libraries(boidSimSYCL PRIVATE
+        OpenGL::GL
+        GLEW::GLEW
+        GLUT::GLUT
+        Freetype::Freetype
+        glm::glm)
+
+    copy_runtime_assets(boidSimSYCL)
+endif()
