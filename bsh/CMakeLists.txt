@@ -1,4 +1,37 @@
 cmake_minimum_required(VERSION 3.16)
+
+# --- backend selection ---
+# Each backend produces its own executable; pick one or both. The default is the
+# SYCL backend. The SYCL backend needs the Intel oneAPI compiler (icpx); the
+# OpenCL backend builds with any C++ compiler (g++ by default).
+#   cmake -DBUILD_OPENCL=ON -DBUILD_SYCL=OFF ..   # OpenCL only, plain g++
+#   cmake -DBUILD_OPENCL=ON ..                    # both backends (needs icpx)
+# Declared before project() so a SYCL build can auto-select icpx below, before
+# the C++ language is enabled and the compiler is locked in.
+option(BUILD_SYCL   "Build the SYCL backend (boidSimSYCL)" ON)
+option(BUILD_OPENCL "Build the OpenCL backend (boidSim)"   OFF)
+
+if(NOT BUILD_OPENCL AND NOT BUILD_SYCL)
+    message(FATAL_ERROR
+        "Nothing to build: enable at least one of BUILD_OPENCL or BUILD_SYCL.")
+endif()
+
+# For a SYCL build, if the user has not pinned a compiler, locate icpx on the
+# system (PATH via `source setvars.sh`, or a default oneAPI install) and use it.
+# An explicit -DCMAKE_CXX_COMPILER=... always wins, since the guard skips then.
+if(BUILD_SYCL AND NOT CMAKE_CXX_COMPILER)
+    find_program(ICPX_EXECUTABLE
+        NAMES icpx
+        PATHS /opt/intel/oneapi/compiler/latest/bin
+              /opt/intel/oneapi/compiler/latest/linux/bin
+        DOC "Intel oneAPI C++/SYCL compiler (icpx)")
+    if(ICPX_EXECUTABLE)
+        set(CMAKE_CXX_COMPILER "${ICPX_EXECUTABLE}" CACHE FILEPATH
+            "C++ compiler" FORCE)
+        message(STATUS "SYCL backend: using Intel oneAPI compiler ${ICPX_EXECUTABLE}")
+    endif()
+endif()
+
 project(BoidSim CXX)
 
 # Dependencies come from the system on Linux (find_package over the distro
@@ -11,23 +44,14 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
-# --- backend selection ---
-# Each backend produces its own executable; pick one or both. The default
-# (OpenCL only) matches a plain g++ configure. The SYCL backend needs the Intel
-# oneAPI compiler, so enable it with e.g.
-#   cmake -DBUILD_SYCL=ON -DBUILD_OPENCL=OFF -DCMAKE_CXX_COMPILER=icpx ..
-option(BUILD_OPENCL "Build the OpenCL backend (boidSim)"     ON)
-option(BUILD_SYCL   "Build the SYCL backend (boidSimSYCL)"   OFF)
-
-if(NOT BUILD_OPENCL AND NOT BUILD_SYCL)
-    message(FATAL_ERROR
-        "Nothing to build: enable at least one of BUILD_OPENCL or BUILD_SYCL.")
-endif()
-
+# The SYCL backend requires icpx; if auto-detection above did not find it (and
+# the user did not point at it), fail with an actionable hint.
 if(BUILD_SYCL AND NOT CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM")
     message(FATAL_ERROR
-        "BUILD_SYCL requires the Intel oneAPI compiler (icpx). "
-        "Re-run with -DCMAKE_CXX_COMPILER=icpx.")
+        "BUILD_SYCL requires the Intel oneAPI compiler (icpx), which was not "
+        "found. Source the oneAPI environment (e.g. `source "
+        "/opt/intel/oneapi/setvars.sh`) so icpx is on PATH, or pass "
+        "-DCMAKE_CXX_COMPILER=icpx.")
 endif()
 
 # Built with the usual out-of-source flow (mkdir build && cd build && cmake ..),
