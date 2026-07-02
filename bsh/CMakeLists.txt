@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(BoidSim CXX)
 
-# Single build, dependencies come from the system on Linux (find_package over the
-# distro packages) and from vcpkg on Windows (the bundled vcpkg.json manifest).
+# Dependencies come from the system on Linux (find_package over the distro
+# packages) and from vcpkg on Windows (the bundled vcpkg.json manifest).
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -11,16 +11,41 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
+# --- backend selection ---
+# Each backend produces its own executable; pick one or both. The default
+# (OpenCL only) matches a plain g++ configure. The SYCL backend needs the Intel
+# oneAPI compiler, so enable it with e.g.
+#   cmake -DBUILD_SYCL=ON -DBUILD_OPENCL=OFF -DCMAKE_CXX_COMPILER=icpx ..
+option(BUILD_OPENCL "Build the OpenCL backend (boidSim)"     ON)
+option(BUILD_SYCL   "Build the SYCL backend (boidSimSYCL)"   OFF)
+
+if(NOT BUILD_OPENCL AND NOT BUILD_SYCL)
+    message(FATAL_ERROR
+        "Nothing to build: enable at least one of BUILD_OPENCL or BUILD_SYCL.")
+endif()
+
+if(BUILD_SYCL AND NOT CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM")
+    message(FATAL_ERROR
+        "BUILD_SYCL requires the Intel oneAPI compiler (icpx). "
+        "Re-run with -DCMAKE_CXX_COMPILER=icpx.")
+endif()
+
 # Built with the usual out-of-source flow (mkdir build && cd build && cmake ..),
 # so the executable lands in build/. common.h reaches cl/ and shaders/ via
 # the ../ relative paths, which resolve from build/ to the repo root.
 
 # --- dependencies ---
+# Shared by both backends.
 find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(GLUT REQUIRED)      # freeglut on both platforms
-find_package(OpenCL REQUIRED)
 find_package(Freetype REQUIRED)
+
+# Only the OpenCL backend needs an OpenCL SDK, so a SYCL-only configure does not
+# require one to be installed.
+if(BUILD_OPENCL)
+    find_package(OpenCL REQUIRED)
+endif()
 
 # GLM is header only: use an installed copy if present, otherwise fetch a
 # current release. Either way the target is glm::glm.
@@ -86,42 +111,42 @@ function(copy_runtime_assets target)
             $<TARGET_FILE_DIR:${target}>/)
 endfunction()
 
-# --- OpenCL executable (default build) ---
-add_executable(boidSim ${SHARED_SOURCES} ${OPENCL_SOURCES})
+# --- OpenCL executable ---
+if(BUILD_OPENCL)
+    add_executable(boidSim ${SHARED_SOURCES} ${OPENCL_SOURCES})
 
-# project headers, plus compat/ for the CL/cl.hpp shim that redirects the
-# removed deprecated cl.hpp to the modern opencl.hpp (used on both platforms)
-target_include_directories(boidSim PRIVATE
-    ${CMAKE_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/cl
-    ${CMAKE_SOURCE_DIR}/compat)
+    # project headers, plus compat/ for the CL/cl.hpp shim that redirects the
+    # removed deprecated cl.hpp to the modern opencl.hpp (used on both platforms)
+    target_include_directories(boidSim PRIVATE
+        ${CMAKE_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/cl
+        ${CMAKE_SOURCE_DIR}/compat)
 
-target_link_libraries(boidSim PRIVATE
-    OpenGL::GL
-    GLEW::GLEW
-    GLUT::GLUT
-    OpenCL::OpenCL
-    Freetype::Freetype
-    glm::glm)
+    target_link_libraries(boidSim PRIVATE
+        OpenGL::GL
+        GLEW::GLEW
+        GLUT::GLUT
+        OpenCL::OpenCL
+        Freetype::Freetype
+        glm::glm)
 
-if(NOT MSVC)
-    target_compile_options(boidSim PRIVATE -Wall -Wno-deprecated-declarations)
+    if(NOT MSVC)
+        target_compile_options(boidSim PRIVATE -Wall -Wno-deprecated-declarations)
+    endif()
+
+    # When boidSim is built with the Intel compiler (e.g. a combined
+    # -DBUILD_SYCL=ON configure), silence the vendored stb_image.h narrowing that
+    # only clang enforces. The g++ build never sees this flag, so it stays unchanged.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM")
+        target_compile_options(boidSim PRIVATE -Wno-c++11-narrowing)
+    endif()
+
+    copy_runtime_assets(boidSim)
 endif()
-
-# When boidSim is also built with the Intel compiler (dual OpenCL+SYCL configure),
-# silence the vendored stb_image.h narrowing that only clang enforces. The g++
-# build never sees this flag, so it stays unchanged.
-if(CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM")
-    target_compile_options(boidSim PRIVATE -Wno-c++11-narrowing)
-endif()
-
-copy_runtime_assets(boidSim)
 
 # --- SYCL executable (first port: Simple model only) ---
-# Added only when the project is configured with the Intel oneAPI compiler
-# (icpx / IntelLLVM), e.g. cmake -DCMAKE_CXX_COMPILER=icpx .. ; a normal g++
-# configure builds only boidSim and is completely unaffected.
-if(CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM")
+# Requires the Intel oneAPI compiler (enforced above); enable with -DBUILD_SYCL=ON.
+if(BUILD_SYCL)
     add_executable(boidSimSYCL ${SHARED_SOURCES} ${SYCL_SOURCES})
 
     # DPC++ requires C++17 (the OpenCL build stays on the project-wide C++11)
