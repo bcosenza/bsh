@@ -1,9 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(BoidSim CXX)
 
-# Single build description for both platforms. Dependencies come from the
-# system on Linux (find_package over the distro packages) and from vcpkg on
-# Windows (the bundled vcpkg.json manifest); nothing is checked into the repo.
+# Single build, dependencies come from the system on Linux (find_package over the
+# distro packages) and from vcpkg on Windows (the bundled vcpkg.json manifest).
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -39,6 +38,7 @@ endif()
 set(SHARED_SOURCES
     Simulation.cpp
     gfx.cpp
+    BoidModelSimpleView.cpp
     LogFile.cpp
     Shader.cpp
     Shader_utils.cpp

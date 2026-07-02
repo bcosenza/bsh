@@ -9,6 +9,7 @@
 #define _BOIDMODELCL_H_
 
 #include "BoidModel.h"
+#include "BoidModelSimpleView.h"
 #include "CLHelper.h"
 
 /*
@@ -32,35 +33,24 @@ public:
 };
 
 /*
-	Naive boid model, which is non optimized for current GPU architecture
+	Naive boid model, which is non optimized for current GPU architecture.
+
+	The GL/render scaffolding (VBO/VAO, shader, render(), getFollowedBoid(), ...)
+	lives in the shared BoidModelSimpleView base; this class only adds the OpenCL
+	compute (buffers, kernel loading, simulate) and its own CLHelper/log().
 */
-class BoidModelSimple : public BoidModelCL
+class BoidModelSimple : public BoidModelSimpleView
 {
 public:
 	BoidModelSimple(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP);
 	~BoidModelSimple();
 
-	// Inheritate from BoidModel
+	// backend-specific parts of the BoidModel interface (the rest come from the view)
 	void simulate(float dt);
-	GLuint getPosVBO();
-	GLuint getVelVBO();
-	GLuint getPosVAO();
-	int getNumBoid();
 	long getSimulationTime();
 	std::vector<const char*> getSimTimeDescriptions();
-	void getFollowedBoid(unsigned int* boidIndex, Vec4 *pos, Vec4 *vel);
-
-	// Inheritate from Renderable
-	void render();
-	Shader* getShader();
-	void bindShader();
-	void unbindShader();
 
 private:
-	/* Create Vertex Array Object and Vertex Buffer Object
-	pos - vector of Vec4 which contains boid positions */
-	void createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel);
-
 	/* Load the openCL program file */
 	void loadProgram(const std::string &filename);
 
@@ -75,28 +65,15 @@ private:
 	vel - vector of Vec4 which contains boid velocities */
 	void loadData();
 
-	// helper is used to switch between input and output position buffer
-	int helper = 0;
-	GLuint pos_vbo[1];
-	GLuint pos_vao[1];
-	GLuint pos_out_vbo[1];
-	GLuint pos_out_vao[1];
-
-	GLuint vel_vbo[1];
-	GLuint vel_out_vbo[1];
-
-	// number of boids
-	int num;
+	// OpenCL device handle + log helper (the grid models get these from BoidModelCL)
+	CLHelper* clHelper;
+	inline void log(std::string entry){ clHelper->log(entry); }
 
 	// Pointer to simulation time discription strings
 	std::vector<const char*> simTimeDisc;
 
 	// Simulation time as string for overlay text
 	std::string stringSimTime;
-
-	// Attributes used in the shader
-	std::vector<std::string> attribName;
-	Shader* shader;
 
 	cl::Context context;
 	cl::CommandQueue queue;

@@ -2,8 +2,10 @@
 #include "BoidModelCL.h"
 #include "vectorTypes.h"
 
-BoidModelSimple::BoidModelSimple(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP) : BoidModelCL(clHlpr)
+BoidModelSimple::BoidModelSimple(CLHelper* clHlpr, std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP) : BoidModelSimpleView()
 {
+	clHelper = clHlpr;
+
 	simTimeDisc = std::vector<const char*>(5);
 	simTimeDisc[0] = "Boid Model Simple";
 	simTimeDisc[1] = "OpenCL Simulation Times:";
@@ -28,110 +30,8 @@ BoidModelSimple::BoidModelSimple(CLHelper* clHlpr, std::vector<Vec4> pos, std::v
 }
 
 BoidModelSimple::~BoidModelSimple(){
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-	glDeleteBuffers(1, pos_vbo);
-	glDeleteBuffers(1, pos_out_vbo);
-
-	glBindVertexArray(0);
-	glDeleteVertexArrays(1, pos_vao);
-	glDeleteVertexArrays(1, pos_out_vao);
-
-	delete shader;
-
+	destroyGLResources();
 	queue.finish();
-}
-
-GLuint BoidModelSimple::getPosVAO(){
-	if (helper % 2 == 0)
-		return pos_out_vao[0];
-	else
-		return pos_vao[0];
-}
-
-GLuint BoidModelSimple::getPosVBO(){
-	if (helper % 2 == 0)
-		return pos_out_vbo[0];
-	else
-		return pos_vbo[0];
-}
-
-GLuint BoidModelSimple::getVelVBO(){
-	if (helper % 2 == 0)
-		return vel_out_vbo[0];
-	else
-		return vel_vbo[0];
-}
-
-int BoidModelSimple::getNumBoid(){
-	return num;
-}
-
-
-void BoidModelSimple::createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel){
-
-	std::vector<Vec4> newDataColor(num);
-
-	for (int i = 0; i < num; i++){
-		newDataColor[i] = BOID_COLOR;
-	}
-
-	GLuint id[1];
-	size_t array_size = num * sizeof(Vec4);
-
-	shader = new Shader("boidTri.v.glsl", "boidTri.f.glsl", "boidTri.g.glsl");
-	GLint vertLoc = glGetAttribLocation(shader->id(), "coord3d");
-	GLint colorLoc = glGetAttribLocation(shader->id(), "color");
-	GLint velLoc = glGetAttribLocation(shader->id(), "vel3d");
-
-	//------VBO 1--------- (in)
-	glGenVertexArrays(1, &pos_vao[0]); // Create our Vertex Array Object  
-	glBindVertexArray(pos_vao[0]); // Bind our Vertex Array Object so we can use it  
-
-	pos_vbo[0] = clHelper->createVBO(&pos[0], array_size, GL_ARRAY_BUFFER, GL_DYNAMIC_DRAW);
-
-	glVertexAttribPointer(vertLoc, 4, GL_FLOAT, GL_FALSE, 0, 0); // Set up our vertex attributes pointer
-	glEnableVertexAttribArray(vertLoc);
-
-	vel_vbo[0] = clHelper->createVBO(&vel[0], array_size, GL_ARRAY_BUFFER, GL_DYNAMIC_DRAW);
-
-	glVertexAttribPointer(velLoc, 4, GL_FLOAT, GL_FALSE, 0, 0); // Set up our vertex attributes pointer
-	glEnableVertexAttribArray(velLoc);
-
-	glGenBuffers(1, &id[0]);
-	glBindBuffer(GL_ARRAY_BUFFER, id[0]);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(Vec4)* num, &newDataColor[0], GL_STATIC_DRAW);
-
-	glVertexAttribPointer(colorLoc, 4, GL_FLOAT, GL_FALSE, 0, 0); // Set up our vertex attributes pointer  
-	glEnableVertexAttribArray(colorLoc);
-
-	glEnableVertexAttribArray(0); // Disable our Vertex Array Object  
-	glBindVertexArray(0);
-
-	//------VBO 2--------- (out)
-	glGenVertexArrays(1, &pos_out_vao[0]); // Create our Vertex Array Object  
-	glBindVertexArray(pos_out_vao[0]); // Bind our Vertex Array Object so we can use it  
-
-	pos_out_vbo[0] = clHelper->createVBO(&pos[0], array_size, GL_ARRAY_BUFFER, GL_DYNAMIC_DRAW);
-
-	glVertexAttribPointer(vertLoc, 4, GL_FLOAT, GL_FALSE, 0, 0); // Set up our vertex attributes pointer
-	glEnableVertexAttribArray(vertLoc);
-
-	vel_out_vbo[0] = clHelper->createVBO(&vel[0], array_size, GL_ARRAY_BUFFER, GL_DYNAMIC_DRAW);
-
-	glVertexAttribPointer(velLoc, 4, GL_FLOAT, GL_FALSE, 0, 0); // Set up our vertex attributes pointer
-	glEnableVertexAttribArray(velLoc);
-
-	glGenBuffers(1, &id[0]);
-	glBindBuffer(GL_ARRAY_BUFFER, id[0]);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(Vec4)* num, &newDataColor[0], GL_STATIC_DRAW);
-
-	glVertexAttribPointer(colorLoc, 4, GL_FLOAT, GL_FALSE, 0, 0); // Set up our vertex attributes pointer  
-	glEnableVertexAttribArray(colorLoc);
-
-	glEnableVertexAttribArray(0); // Disable our Vertex Array Object  
-	glBindVertexArray(0);
-
 }
 
 
@@ -308,14 +208,6 @@ void BoidModelSimple::simulate(float dt){
 	}
 }
 
-void BoidModelSimple::render(){
-	shader->bind();
-	glBindVertexArray(getPosVAO());
-	glDrawArrays(GL_POINTS, 0, num);
-	glBindVertexArray(0);
-	shader->unbind();
-}
-
 long BoidModelSimple::getSimulationTime(){
 	cl_ulong startTime, endTime;
 	eventSim.wait();
@@ -324,19 +216,6 @@ long BoidModelSimple::getSimulationTime(){
 	return (endTime - startTime) / 1000000;
 }
 
-void BoidModelSimple::bindShader(){
-	shader->bind();
-}
-
-void BoidModelSimple::unbindShader(){
-	shader->unbind();
-}
-
-Shader* BoidModelSimple::getShader(){
-	return shader;
-}
-
-
 std::vector<const char*> BoidModelSimple::getSimTimeDescriptions(){
 	std::stringstream strstream;
 	strstream.str(std::string());
@@ -344,22 +223,4 @@ std::vector<const char*> BoidModelSimple::getSimTimeDescriptions(){
 	stringSimTime = strstream.str();
 	simTimeDisc[4] = stringSimTime.c_str();
 	return simTimeDisc;
-}
-
-void BoidModelSimple::getFollowedBoid(unsigned int* boidIndex, Vec4* pos, Vec4* vel){
-	Vec4 v;
-	GLuint vbo = getVelVBO();
-	glBindBuffer(GL_ARRAY_BUFFER, vbo);
-	glGetBufferSubData(GL_ARRAY_BUFFER, sizeof(Vec4)* *boidIndex, sizeof(Vec4), &v);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-	(*vel).set(v.x, v.y, v.z, 0.0);
-
-	Vec4 p;
-	vbo = getPosVBO();
-	glBindBuffer(GL_ARRAY_BUFFER, vbo);
-	glGetBufferSubData(GL_ARRAY_BUFFER, sizeof(Vec4)* *boidIndex, sizeof(Vec4), &p);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-	(*pos).set(p.x, p.y, p.z, 0.0);
 }

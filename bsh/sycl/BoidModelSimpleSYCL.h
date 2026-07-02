@@ -9,7 +9,7 @@
 #define _BOIDMODELSIMPLESYCL_H_
 
 #include "common.h"
-#include "BoidModel.h"
+#include "BoidModelSimpleView.h"
 #include "vectorTypes.h"
 #include <sycl/sycl.hpp>
 
@@ -22,55 +22,24 @@
 	parallel_for port of the boidKernel and copies the result back into the GL
 	VBOs that are rendered (mirroring the no-GL-interop path of the OpenCL model).
 */
-class BoidModelSimpleSYCL : public BoidModel
+class BoidModelSimpleSYCL : public BoidModelSimpleView
 {
 public:
 	BoidModelSimpleSYCL(std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP);
 	~BoidModelSimpleSYCL();
 
-	// BoidModel interface
+	// backend-specific parts of the BoidModel interface (the rest come from the view)
 	void simulate(float dt);
-	GLuint getPosVBO();
-	GLuint getVelVBO();
-	GLuint getPosVAO();
-	int getNumBoid();
 	long getSimulationTime();
 	std::vector<const char*> getSimTimeDescriptions();
-	void getFollowedBoid(unsigned int* boidIndex, Vec4 *pos, Vec4 *vel);
-
-	// Renderable interface
-	void render();
-	Shader* getShader();
-	void bindShader();
-	void unbindShader();
 
 private:
-	/* Create the two VAO/VBO sets (in/out ping-pong) and the boidTri shader */
-	void createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel);
-
-	// helper is used to switch between input and output position buffer
-	int helper = 0;
-	GLuint pos_vbo[1];
-	GLuint pos_vao[1];
-	GLuint pos_out_vbo[1];
-	GLuint pos_out_vao[1];
-
-	GLuint vel_vbo[1];
-	GLuint vel_out_vbo[1];
-
-	// number of boids
-	int num;
-
 	// Pointer to simulation time description strings
 	std::vector<const char*> simTimeDisc;
 	// Simulation time as string for overlay text
 	std::string stringSimTime;
 	// last measured step time in milliseconds
 	long lastSimTimeMs;
-
-	// Attributes used in the shader
-	std::vector<std::string> attribName;
-	Shader* shader;
 
 	// SYCL device state. Boid state is stored as sycl::float4 in device memory
 	// (same 16-byte layout as Vec4, so host<->device transfers are plain memcpy).
