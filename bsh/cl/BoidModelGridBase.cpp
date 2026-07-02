@@ -1,5 +1,5 @@
-// Copyright (c) 2015, Biagio Cosenza.
-// Technische Universitaet Berlin. All rights reserved.
+// Copyright (c) 2015-2026, Biagio Cosenza.
+// Technische Universitaet Berlin (2015-2019). University of Salerno (2019-2026). All rights reserved.
 //
 // This program is provided under a BSD Simplified license. For full
 // license terms please see the LICENSE file distributed with this
