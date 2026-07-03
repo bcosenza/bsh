@@ -10,11 +10,8 @@
 #include "vectorTypes.h"
 #include <chrono>
 
-// distinct alias: vector_types.h already defines an (operator-less) float4
-using sf4 = sycl::float4;
-
-// same neighbourhood bounding-box factor as boidModelSimple_kernel_v2.cl
-#define boundingBoxFactor 2
+// sf4 (== sycl::float4) and boundingBoxFactor live in BoidModelSimpleSYCL.h so
+// the shared wallRepulsion() device helper can use them too.
 
 BoidModelSimpleSYCL::BoidModelSimpleSYCL(std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP)
 {
@@ -82,7 +79,6 @@ void BoidModelSimpleSYCL::simulate(float dt){
 		sf4 cohesion   = sf4(0.0f);
 		sf4 separation = sf4(0.0f);
 		sf4 alignment  = sf4(0.0f);
-		sf4 velCor     = sf4(0.0f);
 
 		// each rule averages over its own neighbourhood, so it needs its own count
 		int cohesionMates  = 0;
@@ -141,20 +137,8 @@ void BoidModelSimpleSYCL::simulate(float dt){
 		if (len > sp.maxVel)
 			v *= sp.maxVel / len;   // w is already 0, so it stays 0
 
-		// wall repulsion: push the boid back toward the interior once it comes
-		// within boundingBoxFactor cells of a world face. This is a pure boundary
-		// test, so it works straight from world coordinates.
-		const sf4 cellSize = sf4(sp.cellSize.x, sp.cellSize.y, sp.cellSize.z, 0.0f);
-		const sf4 margin   = cellSize * (float)boundingBoxFactor;
-		const sf4 worldMax = sf4((float)sp.gridSize.x, (float)sp.gridSize.y, (float)sp.gridSize.z, 0.0f) * cellSize;
-		const sf4 r        = p - sf4(sp.worldOrigin.x, sp.worldOrigin.y, sp.worldOrigin.z, 0.0f);
-
-		// +maxVelCor near the low faces, -maxVelCor near the high faces (high wins
-		// on overlap, as before). maxCor.w() is 0, so velCor.w() stays 0 whatever
-		// the w lane of the border masks happens to be.
-		const sf4 maxCor = sf4(sp.maxVelCor, sp.maxVelCor, sp.maxVelCor, 0.0f);
-		velCor = sycl::select(velCor,  maxCor, r <  margin);
-		velCor = sycl::select(velCor, -maxCor, r >= (worldMax - margin));
+		// keep the boid inside the world with the shared repulsive-wall helper
+		const sf4 velCor = wallRepulsion(p, sp);
 
 		// apply border correction and integrate the position
 		v += velCor;
