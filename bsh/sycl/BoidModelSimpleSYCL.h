@@ -14,13 +14,9 @@
 #include <sycl/sycl.hpp>
 
 /*
-	SYCL port of BoidModelSimple (the naive O(n^2) flocking model).
-
-	Backend-agnostic sibling of the OpenCL cl/BoidModelSimple: derives from the
-	same BoidModel interface, so gfx.cpp drives it unchanged. Boid state lives in
-	device memory allocated with sycl::malloc_device; each step runs a SYCL
-	parallel_for port of the boidKernel and copies the result back into the GL
-	VBOs that are rendered (mirroring the no-GL-interop path of the OpenCL model).
+	BoidModelSimple is a naive O(n^2) flocking model implemented in SYCL
+	Boids data is stored in device memory allocated with sycl::malloc_device; each step runs a SYCL
+	parallel_for and copies the result back into the GL VBOs that are rendered (no-GL-interop path).
 */
 class BoidModelSimpleSYCL : public BoidModelSimpleView
 {
@@ -34,15 +30,20 @@ public:
 	std::vector<const char*> getSimTimeDescriptions();
 
 private:
-	// Pointer to simulation time description strings
+	// perception radii of the three Reynolds steering rules (world units). A boid
+	// only reacts to flockmates that fall inside the corresponding radius.
+	static constexpr float cohesionRadius   = 5.0f;   // how far it looks to steer toward the flock centre
+	static constexpr float alignmentRadius  = 5.0f;   // how far it looks to match neighbours' heading
+	static constexpr float separationRadius = 2.5f;   // tighter zone within which it pushes away
+
+	// pointer to description strings (will be used for simulation time)
 	std::vector<const char*> simTimeDisc;
 	// Simulation time as string for overlay text
 	std::string stringSimTime;
 	// last measured step time in milliseconds
 	long lastSimTimeMs;
 
-	// SYCL device state. Boid state is stored as sycl::float4 in device memory
-	// (same 16-byte layout as Vec4, so host<->device transfers are plain memcpy).
+	// boid state is stored as sycl::float4 in device memory
 	sycl::queue queue;
 	sycl::float4* d_pos;
 	sycl::float4* d_pos_out;

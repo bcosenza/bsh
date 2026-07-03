@@ -35,8 +35,7 @@ BoidModelSimpleSYCL::BoidModelSimpleSYCL(std::vector<Vec4> pos, std::vector<Vec4
 	//make sure OpenGL is finished before we proceed
 	glFinish();
 
-	// Vec4 and sycl::sf4 share the same 16-byte layout, so the initial host
-	// state can be copied straight into the device buffers.
+	// device buffer allocation
 	size_t bytes = num * sizeof(sf4);
 	d_pos     = sycl::malloc_device<sf4>(num, queue);
 	d_pos_out = sycl::malloc_device<sf4>(num, queue);
@@ -85,7 +84,9 @@ void BoidModelSimpleSYCL::simulate(float dt){
 		sf4 alignment  = sf4(0.0f);
 		sf4 velCor     = sf4(0.0f);
 
-		int numFlockMates = 0;
+		// each rule averages over its own neighbourhood, so it needs its own count
+		int cohesionMates  = 0;
+		int alignmentMates = 0;
 
 		// compare every boid with every other boid (brute force O(n^2))
 		for (int j = 0; j < (int)sp.numBodies; j++){
@@ -96,28 +97,40 @@ void BoidModelSimpleSYCL::simulate(float dt){
 			dist.w() = 0.0f;
 
 			float distLength = sycl::length(dist);
-			if (distLength < 5.0f){
-				float dotP = sycl::dot(-v, dist);
-				float lenV = sycl::length(v);
-				float angle = dotP / (lenV * distLength);
 
-				// acute angle in degrees; acospi(x)*180 == acos(x)/pi*180
-				float deg = sycl::acos(angle) * (180.0f / (float)M_PI);
-				if ((dotP < 0.0f) || (sycl::fabs(deg) > 45.0f)){
-					cohesion  += otherBoid;
-					alignment += velIn[j];
-					numFlockMates += 1;
+			// field-of-view test: ignore neighbours behind the boid (outside its
+			// ~45deg forward vision cone), regardless of the rule's radius
+			float dotP  = sycl::dot(-v, dist);
+			float lenV  = sycl::length(v);
+			float angle = dotP / (lenV * distLength);
+			// acute angle in degrees; acospi(x)*180 == acos(x)/pi*180
+			float deg   = sycl::acos(angle) * (180.0f / (float)M_PI);
+			bool inView = (dotP < 0.0f) || (sycl::fabs(deg) > 45.0f);
+			if (!inView) continue;
 
-					if (distLength < 2.5f)
-						separation -= dist;
-				}
+			// Cohesion: steer toward the average position of nearby flockmates
+			if (distLength < cohesionRadius){
+				cohesion += otherBoid;
+				cohesionMates += 1;
 			}
+
+			// Alignment: steer toward the average heading of nearby flockmates
+			if (distLength < alignmentRadius){
+				alignment += velIn[j];
+				alignmentMates += 1;
+			}
+
+			// Separation: steer away from flockmates that are too close
+			if (distLength < separationRadius)
+				separation -= dist;
 		}
 
-		if (numFlockMates > 0){
-			alignment = (alignment / (float)numFlockMates) - v;
-			cohesion  = (cohesion  / (float)numFlockMates) - p;
-		}
+		// turn the accumulated positions/velocities into steering vectors relative
+		// to this boid (average neighbour minus own state)
+		if (alignmentMates > 0)
+			alignment = (alignment / (float)alignmentMates) - v;
+		if (cohesionMates > 0)
+			cohesion  = (cohesion  / (float)cohesionMates) - p;
 
 		// apply weights and compute new velocity
 		v = v * sp.wOwn + (cohesion * sp.wCohesion + alignment * sp.wAlignment + separation * sp.wSeparation);
@@ -125,26 +138,23 @@ void BoidModelSimpleSYCL::simulate(float dt){
 
 		// cap the speed at maxVel (nicer than clamping per component)
 		float len = sycl::length(v);
-		if (len > sp.maxVel){
-			v.x() = (v.x() / len) * sp.maxVel;
-			v.y() = (v.y() / len) * sp.maxVel;
-			v.z() = (v.z() / len) * sp.maxVel;
-		}
+		if (len > sp.maxVel)
+			v *= sp.maxVel / len;   // w is already 0, so it stays 0
 
-		// grid position, to detect border cells (getGridPos in the kernel)
-		int gx = (int)sycl::floor((p.x() - sp.worldOrigin.x) / sp.cellSize.x);
-		int gy = (int)sycl::floor((p.y() - sp.worldOrigin.y) / sp.cellSize.y);
-		int gz = (int)sycl::floor((p.z() - sp.worldOrigin.z) / sp.cellSize.z);
-		gx = sycl::clamp(gx, 0, (int)sp.gridSize.x - 1);
-		gy = sycl::clamp(gy, 0, (int)sp.gridSize.y - 1);
-		gz = sycl::clamp(gz, 0, (int)sp.gridSize.z - 1);
+		// wall repulsion: push the boid back toward the interior once it comes
+		// within boundingBoxFactor cells of a world face. This is a pure boundary
+		// test, so it works straight from world coordinates.
+		const sf4 cellSize = sf4(sp.cellSize.x, sp.cellSize.y, sp.cellSize.z, 0.0f);
+		const sf4 margin   = cellSize * (float)boundingBoxFactor;
+		const sf4 worldMax = sf4((float)sp.gridSize.x, (float)sp.gridSize.y, (float)sp.gridSize.z, 0.0f) * cellSize;
+		const sf4 r        = p - sf4(sp.worldOrigin.x, sp.worldOrigin.y, sp.worldOrigin.z, 0.0f);
 
-		if (gx < boundingBoxFactor)                              velCor.x() =  sp.maxVelCor;
-		if (gx >= (int)sp.gridSize.x - boundingBoxFactor)        velCor.x() = -sp.maxVelCor;
-		if (gy < boundingBoxFactor)                              velCor.y() =  sp.maxVelCor;
-		if (gy >= (int)sp.gridSize.y - boundingBoxFactor)        velCor.y() = -sp.maxVelCor;
-		if (gz < boundingBoxFactor)                              velCor.z() =  sp.maxVelCor;
-		if (gz >= (int)sp.gridSize.z - boundingBoxFactor)        velCor.z() = -sp.maxVelCor;
+		// +maxVelCor near the low faces, -maxVelCor near the high faces (high wins
+		// on overlap, as before). maxCor.w() is 0, so velCor.w() stays 0 whatever
+		// the w lane of the border masks happens to be.
+		const sf4 maxCor = sf4(sp.maxVelCor, sp.maxVelCor, sp.maxVelCor, 0.0f);
+		velCor = sycl::select(velCor,  maxCor, r <  margin);
+		velCor = sycl::select(velCor, -maxCor, r >= (worldMax - margin));
 
 		// apply border correction and integrate the position
 		v += velCor;
