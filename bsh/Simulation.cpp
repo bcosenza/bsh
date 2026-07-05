@@ -1,7 +1,8 @@
 #include "common.h"
 #include "Simulation.h"
 #ifdef USE_SYCL
-#include "BoidModelSimpleSYCL.h"   // SYCL build ships only the Simple scene
+#include "BoidModelSimpleSYCL.h"   // SYCL: Simple (brute force) scene
+#include "BoidGridBase.h"          // SYCL: Grid (uniform-grid acceleration) scene
 #else
 #include "BoidModelCL.h"           // concrete OpenCL models constructed in createModel()
 #endif
@@ -226,8 +227,11 @@ void Simulation::columnObstacleData(std::vector<Vec4>* cor, std::vector<unsigned
 
 BoidModel* Simulation::createModel(int modelNum){
 #ifdef USE_SYCL
-	// only the Simple model is ported to SYCL
-	return new BoidModelSimpleSYCL(pos, vel, &simParams);
+	// SYCL build: Simple (brute force) and Grid (uniform-grid acceleration)
+	switch (modelNum){
+	case BOID_GRID:	return new BoidGridBase(pos, vel, &simParams);
+	default:		return new BoidModelSimpleSYCL(pos, vel, &simParams);
+	}
 #else
 	switch (modelNum){
 	case BOID_SIMPLE:	return new BoidModelSimple(clHelper, pos, vel, &simParams);
@@ -289,8 +293,8 @@ float Simulation::getTimeDiff(){
 
 void Simulation::switchToModel(int modelNum){
 #ifdef USE_SYCL
-	// the SYCL build only ports the Simple model, so it shows a single scene
-	if (modelNum != BOID_SIMPLE)
+	// the SYCL build ports the Simple and Grid models
+	if (modelNum != BOID_SIMPLE && modelNum != BOID_GRID)
 		return;
 #endif
 	const SceneConfig* scene = findScene(modelNum);

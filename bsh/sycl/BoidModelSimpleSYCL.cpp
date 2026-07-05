@@ -23,6 +23,18 @@ BoidModelSimpleSYCL::BoidModelSimpleSYCL(std::vector<Vec4> pos, std::vector<Vec4
 	simTimeDisc[4] = "";
 
 	simParams = *simP;
+
+	// Override the flocking weights for this model only (leaving SimParam.h and
+	// the other models untouched). The default SimParam weights let own-velocity
+	// dwarf the three rules; unit weights put cohesion/alignment/separation on the
+	// same footing as momentum so their behaviour is actually visible. Note these
+	// rules are still un-normalized, so equal weights != equal influence
+	// (alignment/separation naturally dominate cohesion) -- normalization TBD.
+	simParams.wCohesion   = 1.0f;
+	simParams.wAlignment  = 1.0f;
+	simParams.wSeparation = 1.0f;
+	simParams.wOwn        = 1.0f;
+
 	num = simParams.numBodies;
 	lastSimTimeMs = 0;
 	hostBuf.resize(num);
@@ -55,7 +67,6 @@ BoidModelSimpleSYCL::~BoidModelSimpleSYCL(){
 }
 
 void BoidModelSimpleSYCL::simulate(float dt){
-	size_t array_size = num * sizeof(Vec4);
 	const int n = num;
 	const simParams_t sp = simParams;	// captured by value into the kernel
 
@@ -76,73 +87,10 @@ void BoidModelSimpleSYCL::simulate(float dt){
 		sf4 p = posIn[id];
 		sf4 v = velIn[id];
 
-		sf4 cohesion   = sf4(0.0f);
-		sf4 separation = sf4(0.0f);
-		sf4 alignment  = sf4(0.0f);
-
-		// each rule averages over its own neighbourhood, so it needs its own count
-		int cohesionMates  = 0;
-		int alignmentMates = 0;
-
-		// compare every boid with every other boid (brute force O(n^2))
-		for (int j = 0; j < (int)sp.numBodies; j++){
-			if (j == id) continue;
-
-			sf4 otherBoid = posIn[j];
-			sf4 dist = otherBoid - p;
-			dist.w() = 0.0f;
-
-			float distLength = sycl::length(dist);
-
-			// field-of-view test: ignore neighbours behind the boid (outside its
-			// ~45deg forward vision cone), regardless of the rule's radius
-			float dotP  = sycl::dot(-v, dist);
-			float lenV  = sycl::length(v);
-			float angle = dotP / (lenV * distLength);
-			// acute angle in degrees; acospi(x)*180 == acos(x)/pi*180
-			float deg   = sycl::acos(angle) * (180.0f / (float)M_PI);
-			bool inView = (dotP < 0.0f) || (sycl::fabs(deg) > 45.0f);
-			if (!inView) continue;
-
-			// Cohesion: steer toward the average position of nearby flockmates
-			if (distLength < cohesionRadius){
-				cohesion += otherBoid;
-				cohesionMates += 1;
-			}
-
-			// Alignment: steer toward the average heading of nearby flockmates
-			if (distLength < alignmentRadius){
-				alignment += velIn[j];
-				alignmentMates += 1;
-			}
-
-			// Separation: steer away from flockmates that are too close
-			if (distLength < separationRadius)
-				separation -= dist;
-		}
-
-		// turn the accumulated positions/velocities into steering vectors relative
-		// to this boid (average neighbour minus own state)
-		if (alignmentMates > 0)
-			alignment = (alignment / (float)alignmentMates) - v;
-		if (cohesionMates > 0)
-			cohesion  = (cohesion  / (float)cohesionMates) - p;
-
-		// apply weights and compute new velocity
-		v = v * sp.wOwn + (cohesion * sp.wCohesion + alignment * sp.wAlignment + separation * sp.wSeparation);
-		v.w() = 0.0f;
-
-		// cap the speed at maxVel (nicer than clamping per component)
-		float len = sycl::length(v);
-		if (len > sp.maxVel)
-			v *= sp.maxVel / len;   // w is already 0, so it stays 0
-
-		// keep the boid inside the world with the shared repulsive-wall helper
-		const sf4 velCor = wallRepulsion(p, sp);
-
-		// apply border correction and integrate the position
-		v += velCor;
-		p += v * dt;
+		// Reynolds steering over the whole flock (brute force O(n^2)), then the
+		// shared dynamics (momentum + gain, speed clamp, wall, integrate)
+		const sf4 steer = flockingSteer(p, v, posIn, velIn, n, sp);
+		advanceBoid(p, v, steer, sp, dt);
 
 		posOut[id] = p;
 		velOut[id] = v;
@@ -154,17 +102,16 @@ void BoidModelSimpleSYCL::simulate(float dt){
 
 	// copy the freshly computed state back into the GL VBOs that getPosVAO()
 	// will render this frame
-	GLuint posVboToFill = pingPong ? pos_out_vbo[0] : pos_vbo[0];
-	GLuint velVboToFill = pingPong ? vel_out_vbo[0] : vel_vbo[0];
-
-	queue.memcpy(hostBuf.data(), posOut, array_size).wait();
-	glBindBuffer(GL_ARRAY_BUFFER, posVboToFill);
-	glBufferSubData(GL_ARRAY_BUFFER, 0, array_size, hostBuf.data());
-
-	queue.memcpy(hostBuf.data(), velOut, array_size).wait();
-	glBindBuffer(GL_ARRAY_BUFFER, velVboToFill);
-	glBufferSubData(GL_ARRAY_BUFFER, 0, array_size, hostBuf.data());
+	uploadToVBO(posOut, pingPong ? pos_out_vbo[0] : pos_vbo[0]);
+	uploadToVBO(velOut, pingPong ? vel_out_vbo[0] : vel_vbo[0]);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+void BoidModelSimpleSYCL::uploadToVBO(sf4* deviceBuf, GLuint vbo){
+	size_t bytes = num * sizeof(Vec4);
+	queue.memcpy(hostBuf.data(), deviceBuf, bytes).wait();
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	glBufferSubData(GL_ARRAY_BUFFER, 0, bytes, hostBuf.data());
 }
 
 long BoidModelSimpleSYCL::getSimulationTime(){

@@ -273,6 +273,23 @@ void GFX::mouseHandler(int button, int state, int x, int y){
 			mouseOriginY = y;
 		}
 	}
+	// mouse wheel: freeglut reports it through glutMouseFunc as button 3 (up) and
+	// button 4 (down). Zoom by moving the eye along the view direction while
+	// keeping the look-at target fixed; each notch is a fixed fraction of the
+	// current eye-to-target distance, so the zoom feels uniform at any range.
+	// Only react to the press half of the wheel's press/release pair.
+	else if ((button == 3 || button == 4) && state == GLUT_DOWN) {
+		const float step = 0.1f;                            // 10% per notch
+		float factor = (button == 3) ? step : -step;        // wheel up zooms in
+
+		glm::vec3 dir = camCenter - eye;                    // == eyeToCam
+		// don't let a zoom-in cross or collapse onto the target
+		if (factor > 0.0f && glm::length(dir) < 1.0f)
+			return;
+
+		eye = eye + dir * factor;
+		eyeToCam = camCenter - eye;
+	}
 }
 
 void GFX::motionHandler(int x, int y){

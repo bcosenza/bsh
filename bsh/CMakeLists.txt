@@ -119,9 +119,10 @@ set(OPENCL_SOURCES
     cl/boidModelSHObstacle.cpp
     cl/BoidModelSHObstacleTunnel.cpp)
 
-# SYCL backend: first port, only the Simple model (see sycl/).
+# SYCL backend: Simple (brute-force) and Grid-accelerated models (see sycl/).
 set(SYCL_SOURCES
-    sycl/BoidModelSimpleSYCL.cpp)
+    sycl/BoidModelSimpleSYCL.cpp
+    sycl/BoidGridBase.cpp)
 
 # Copy the runtime assets a target opens by its own filename (textures, fonts)
 # next to its executable. cl/ and shaders/ stay at the repo root and are reached
