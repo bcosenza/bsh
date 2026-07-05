@@ -13,8 +13,8 @@
 #include <cmath>
 #include <chrono>
 
-BoidGridBase::BoidGridBase(std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP)
-	: BoidModelSimpleSYCL(pos, vel, simP)   // sets up device state, VBOs and weights
+BoidGridBase::BoidGridBase(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color, simParams_t* simP)
+	: BoidModelSimpleSYCL(pos, vel, color, simP)   // sets up device state, VBOs (with colors) and weights
 {
 	// relabel the overlay (the base constructor set "Boid Model Simple")
 	simTimeDisc[0] = "Boid Model Grid";
@@ -127,10 +127,11 @@ void BoidGridBase::simulate(float dt){
 
 	sf4* sortedPos = d_pos_out;   // input: sorted current state
 	sf4* sortedVel = d_vel_out;
-	sf4* outPos    = d_pos;       // output: new state (also in sorted order)
+	sf4* outPos    = d_pos;       // output: new state, scattered back to original order
 	sf4* outVel    = d_vel;
 	int* cellStart = d_cellStart;
 	int* cellEnd   = d_cellEnd;
+	unsigned int* index = d_index;   // sorted position k -> original boid index
 
 	// step 5: pairwise interaction, but only over the 27 neighbouring cells
 	queue.parallel_for(sycl::range<1>(n), [=](sycl::id<1> idx){
@@ -163,8 +164,11 @@ void BoidGridBase::simulate(float dt){
 		const sf4 steer = finalizeSteer(acc, p, v, sp);
 		advanceBoid(p, v, steer, sp, dt);
 
-		outPos[k] = p;
-		outVel[k] = v;
+		// scatter back to the boid's original index so the rendered VBO (and thus
+		// the static per-boid color VBO) stays in a stable order across frames
+		const int orig = (int)index[k];
+		outPos[orig] = p;
+		outVel[orig] = v;
 	});
 	queue.wait();
 

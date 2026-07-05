@@ -40,7 +40,7 @@ protected:
 	BoidModelSimpleView() : helper(0), num(0), shader(NULL) {}
 
 	/* Create the two VAO/VBO sets (in/out ping-pong) + boidTri shader. */
-	void createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel);
+	void createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color = std::vector<Vec4>());
 	/* Delete the GL objects and the shader (call from the concrete destructor). */
 	void destroyGLResources();
 

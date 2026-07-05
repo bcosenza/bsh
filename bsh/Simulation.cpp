@@ -134,7 +134,7 @@ Simulation::Simulation() {
 	pendingModel = BOID_SIMPLE;
 	currentSceneName = findScene(BOID_SIMPLE)->name;
 #ifdef USE_SYCL
-	boidModel = new BoidModelSimpleSYCL(pos, vel, &simParams);
+	boidModel = new BoidModelSimpleSYCL(pos, vel, color, &simParams);
 #else
 	boidModel = new BoidModelSimple(clHelper, pos, vel, &simParams);
 #endif
@@ -229,8 +229,8 @@ BoidModel* Simulation::createModel(int modelNum){
 #ifdef USE_SYCL
 	// SYCL build: Simple (brute force) and Grid (uniform-grid acceleration)
 	switch (modelNum){
-	case BOID_GRID:	return new BoidGridBase(pos, vel, &simParams);
-	default:		return new BoidModelSimpleSYCL(pos, vel, &simParams);
+	case BOID_GRID:	return new BoidGridBase(pos, vel, color, &simParams);
+	default:		return new BoidModelSimpleSYCL(pos, vel, color, &simParams);
 	}
 #else
 	switch (modelNum){
@@ -384,6 +384,8 @@ static const Vec4 COLOR_GREEN(0.17f, 0.37f, 0.21f, 1.f);
 static const Vec4 COLOR_RED(0.69f, 0.12f, 0.12f, 1.f);
 static const Vec4 COLOR_YELLOW(.77f, 0.59f, 0.09f, 1.f);
 static const Vec4 COLOR_BLUE(0.09f, 0.59f, .77f, 1.f);
+static const Vec4 COLOR_ORANGE(0.85f, 0.42f, 0.09f, 1.f);
+static const Vec4 COLOR_PURPLE(0.45f, 0.15f, 0.55f, 1.f);
 
 //turn a position into a goal entry (w = 0)
 static inline Vec4 goalAt(const Vec4& p){
@@ -421,7 +423,7 @@ void Simulation::initRandom(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std:
 		(*pos)[i] = Vec4(x, y, z, 1.f);
 		(*vel)[i] = Vec4(randFloat(-maxVel, maxVel), randFloat(-maxVel, maxVel), randFloat(-maxVel, maxVel), 0.f);
 		(*goal)[i] = Vec4(x, y, z, 0.0f);
-		(*color)[i] = BOID_COLOR;
+		(*color)[i] = COLOR_RED;
 	}
 }
 
@@ -487,11 +489,11 @@ void Simulation::createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std:
 			const int j = i + half;
 			(*pos)[i] = clusterPos(.5f, .5f, .25f, r);
 			(*vel)[i] = Vec4(0.0f, 0.0f, randFloat(0.0f, maxVel), 0.0f);
-			(*color)[i] = COLOR_GREEN;
+			(*color)[i] = COLOR_RED;
 
 			(*pos)[j] = clusterPos(.5f, .5f, .75f, r);
 			(*vel)[j] = Vec4(0.0f, 0.0f, randFloat(-maxVel, 0.0f), 0.0f);
-			(*color)[j] = COLOR_RED;
+			(*color)[j] = COLOR_BLUE;
 
 			(*goal)[i] = goalAt((*pos)[j]);
 			(*goal)[j] = goalAt((*pos)[i]);
@@ -510,7 +512,7 @@ void Simulation::createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std:
 			(*vel)[j] = small_ ? Vec4(0.0f, 0.0f, randFloat(0.0f, maxVel), 0.0f)
 			                   : Vec4(0.0f, 0.0f, randFloat(-maxVel, 0.0f), 0.0f);
 			(*goal)[j] = small_ ? goalFar : goalNear;
-			(*color)[j] = small_ ? COLOR_GREEN : COLOR_RED;
+			(*color)[j] = small_ ? COLOR_RED : COLOR_BLUE;
 		}
 		break;
 	}
@@ -522,9 +524,9 @@ void Simulation::createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std:
 		{
 			const int a = i, b = i + q, c = i + 2 * q, d = i + 3 * q;
 			(*pos)[a] = clusterPos(.5f, .5f, .25f, r); (*vel)[a] = Vec4(0.0f, 0.0f, randFloat(0.0f, maxVel), 0.0f);  (*color)[a] = COLOR_RED;
-			(*pos)[b] = clusterPos(.5f, .5f, .75f, r); (*vel)[b] = Vec4(0.0f, 0.0f, randFloat(-maxVel, 0.0f), 0.0f); (*color)[b] = COLOR_GREEN;
-			(*pos)[c] = clusterPos(.25f, .5f, .5f, r); (*vel)[c] = Vec4(randFloat(0.0f, maxVel), 0.0f, 0.0f, 0.0f);  (*color)[c] = COLOR_YELLOW;
-			(*pos)[d] = clusterPos(.75f, .5f, .5f, r); (*vel)[d] = Vec4(randFloat(-maxVel, 0.0f), 0.0f, 0.0f, 0.0f); (*color)[d] = COLOR_BLUE;
+			(*pos)[b] = clusterPos(.5f, .5f, .75f, r); (*vel)[b] = Vec4(0.0f, 0.0f, randFloat(-maxVel, 0.0f), 0.0f); (*color)[b] = COLOR_BLUE;
+			(*pos)[c] = clusterPos(.25f, .5f, .5f, r); (*vel)[c] = Vec4(randFloat(0.0f, maxVel), 0.0f, 0.0f, 0.0f);  (*color)[c] = COLOR_ORANGE;
+			(*pos)[d] = clusterPos(.75f, .5f, .5f, r); (*vel)[d] = Vec4(randFloat(-maxVel, 0.0f), 0.0f, 0.0f, 0.0f); (*color)[d] = COLOR_PURPLE;
 
 			(*goal)[a] = goalAt((*pos)[b]); (*goal)[b] = goalAt((*pos)[a]);
 			(*goal)[c] = goalAt((*pos)[d]); (*goal)[d] = goalAt((*pos)[c]);
@@ -538,9 +540,9 @@ void Simulation::createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std:
 		for (int i = 0; i < t; i++)
 		{
 			const int a = i, b = i + t, c = i + 2 * t;
-			(*pos)[a] = clusterPos(.5f, .5f, .25f, r); (*vel)[a] = Vec4(0.0f, 0.0f, randFloat(0.0f, maxVel), 0.0f);  (*color)[a] = COLOR_GREEN;
-			(*pos)[b] = clusterPos(.5f, .5f, .75f, r); (*vel)[b] = Vec4(0.0f, 0.0f, randFloat(-maxVel, 0.0f), 0.0f); (*color)[b] = COLOR_RED;
-			(*pos)[c] = clusterPos(.25f, .5f, .5f, r); (*vel)[c] = Vec4(randFloat(0.0f, maxVel), 0.0f, 0.0f, 0.0f);  (*color)[c] = COLOR_YELLOW;
+			(*pos)[a] = clusterPos(.5f, .5f, .25f, r); (*vel)[a] = Vec4(0.0f, 0.0f, randFloat(0.0f, maxVel), 0.0f);  (*color)[a] = COLOR_RED;
+			(*pos)[b] = clusterPos(.5f, .5f, .75f, r); (*vel)[b] = Vec4(0.0f, 0.0f, randFloat(-maxVel, 0.0f), 0.0f); (*color)[b] = COLOR_BLUE;
+			(*pos)[c] = clusterPos(.25f, .5f, .5f, r); (*vel)[c] = Vec4(randFloat(0.0f, maxVel), 0.0f, 0.0f, 0.0f);  (*color)[c] = COLOR_GREEN;
 
 			(*goal)[a] = goalAt((*pos)[b]); (*goal)[b] = goalAt((*pos)[c]); (*goal)[c] = goalAt((*pos)[a]);
 		}
@@ -550,7 +552,7 @@ void Simulation::createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std:
 			(*pos)[i] = clusterPos(.5f, .5f, .25f, r);
 			(*vel)[i] = Vec4(0.0f, 0.0f, randFloat(0.0f, maxVel), 0.0f);
 			(*goal)[i] = goalAt(clusterPos(.5f, .5f, .75f, 0.f));
-			(*color)[i] = COLOR_GREEN;
+			(*color)[i] = COLOR_RED;
 		}
 		break;
 	}

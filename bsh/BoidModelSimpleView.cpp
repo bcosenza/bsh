@@ -18,11 +18,12 @@ static GLuint makeVBO(const void* data, size_t dataSize){
 	return id;
 }
 
-void BoidModelSimpleView::createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel){
+void BoidModelSimpleView::createVboBindShader(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color){
 
-	std::vector<Vec4> newDataColor(num);
-	for (int i = 0; i < num; i++)
-		newDataColor[i] = BOID_COLOR;
+	// per-boid colors uploaded into the color attribute; if a caller supplies none
+	// (e.g. the OpenCL Simple model), fall back to a single uniform colour.
+	if ((int)color.size() < num)
+		color.assign(num, BOID_COLOR);
 
 	GLuint id[1];
 	size_t array_size = num * sizeof(Vec4);
@@ -46,7 +47,7 @@ void BoidModelSimpleView::createVboBindShader(std::vector<Vec4> pos, std::vector
 
 	glGenBuffers(1, &id[0]);
 	glBindBuffer(GL_ARRAY_BUFFER, id[0]);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(Vec4)* num, &newDataColor[0], GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(Vec4)* num, &color[0], GL_STATIC_DRAW);
 	glVertexAttribPointer(colorLoc, 4, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(colorLoc);
 
@@ -67,7 +68,7 @@ void BoidModelSimpleView::createVboBindShader(std::vector<Vec4> pos, std::vector
 
 	glGenBuffers(1, &id[0]);
 	glBindBuffer(GL_ARRAY_BUFFER, id[0]);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(Vec4)* num, &newDataColor[0], GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(Vec4)* num, &color[0], GL_STATIC_DRAW);
 	glVertexAttribPointer(colorLoc, 4, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(colorLoc);
 

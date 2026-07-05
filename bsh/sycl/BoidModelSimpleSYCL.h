@@ -24,7 +24,7 @@ using sf4 = sycl::float4;
 class BoidModelSimpleSYCL : public BoidModelSimpleView
 {
 public:
-	BoidModelSimpleSYCL(std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP);
+	BoidModelSimpleSYCL(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color, simParams_t* simP);
 	~BoidModelSimpleSYCL();
 
 	// backend-specific parts of the BoidModel interface (the rest come from the view)

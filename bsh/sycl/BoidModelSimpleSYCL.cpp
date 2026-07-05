@@ -13,7 +13,7 @@
 // sf4 (== sycl::float4) and boundingBoxFactor live in BoidModelSimpleSYCL.h so
 // the shared wallRepulsion() device helper can use them too.
 
-BoidModelSimpleSYCL::BoidModelSimpleSYCL(std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP)
+BoidModelSimpleSYCL::BoidModelSimpleSYCL(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color, simParams_t* simP)
 {
 	simTimeDisc = std::vector<const char*>(5);
 	simTimeDisc[0] = "Boid Model Simple";
@@ -39,7 +39,7 @@ BoidModelSimpleSYCL::BoidModelSimpleSYCL(std::vector<Vec4> pos, std::vector<Vec4
 	lastSimTimeMs = 0;
 	hostBuf.resize(num);
 
-	createVboBindShader(pos, vel);
+	createVboBindShader(pos, vel, color);
 
 	//make sure OpenGL is finished before we proceed
 	glFinish();

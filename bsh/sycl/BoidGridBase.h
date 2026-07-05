@@ -41,7 +41,7 @@
 class BoidGridBase : public BoidModelSimpleSYCL
 {
 public:
-	BoidGridBase(std::vector<Vec4> pos, std::vector<Vec4> vel, simParams_t* simP);
+	BoidGridBase(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color, simParams_t* simP);
 	virtual ~BoidGridBase();
 
 	// grid-accelerated step (overrides the brute-force simulate of the base)
