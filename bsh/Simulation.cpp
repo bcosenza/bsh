@@ -390,6 +390,16 @@ static inline Vec4 goalAt(const Vec4& p){
 	return Vec4(p.x, p.y, p.z, 0.0f);
 }
 
+//velocity of magnitude 'speed' pointing from 'from' toward 'to' (w = 0)
+static inline Vec4 dirTo(const Vec4& from, const Vec4& to, float speed){
+	float dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+	float len = sqrtf(dx * dx + dy * dy + dz * dz);
+	if (len < 1e-6f)
+		return Vec4(0.f, 0.f, 0.f, 0.f);
+	float s = speed / len;
+	return Vec4(dx * s, dy * s, dz * s, 0.f);
+}
+
 Vec4 Simulation::clusterPos(float fx, float fy, float fz, float r){
 	float theta = randFloat(0.0f, CL_M_PI);
 	float phi = randFloat(0.0f, 2 * CL_M_PI);
@@ -399,39 +409,96 @@ Vec4 Simulation::clusterPos(float fx, float fy, float fz, float r){
 	return Vec4(x, y, z, 1.f);
 }
 
+//every boid at a uniform-random position inside the world cube (inset two cells
+//from each face) with a random velocity; goal = its own start position.
+void Simulation::initRandom(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color){
+	const float maxVel = simParams.maxVel;
+	for (int i = 0; i < (int)simParams.numBodies; i++)
+	{
+		float x = randFloat(2.f * CELL_SIZE_X, simParams.gridSize.x * CELL_SIZE_X - CELL_SIZE_X * 2.f);
+		float z = randFloat(2.f * CELL_SIZE_Z, simParams.gridSize.z * CELL_SIZE_Z - CELL_SIZE_Z * 2.f);
+		float y = randFloat(2.f * CELL_SIZE_Y, simParams.gridSize.y * CELL_SIZE_Y - CELL_SIZE_Y * 2.f);
+		(*pos)[i] = Vec4(x, y, z, 1.f);
+		(*vel)[i] = Vec4(randFloat(-maxVel, maxVel), randFloat(-maxVel, maxVel), randFloat(-maxVel, maxVel), 0.f);
+		(*goal)[i] = Vec4(x, y, z, 0.0f);
+		(*color)[i] = BOID_COLOR;
+	}
+}
+
+//two spherical groups: the first half of the boids are spread in a sphere around
+//P1, the rest around P2. P1 and P2 sit at 1/3 and 2/3 of the world along Z (X and
+//Y centred). Every boid heads toward the opposite group's centre.
+void Simulation::initTwoGroups(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color){
+	const float maxVel = simParams.maxVel;
+	const float r = TEST_SETUP_RADIUS / 2;   // sphere radius (in cells), as in the other test setups
+
+	// group centres at 1/3 and 2/3 of the world extent along Z
+	const Vec4 P1(CELL_SIZE_X * simParams.gridSize.x * 0.5f,
+	              CELL_SIZE_Y * simParams.gridSize.y * 0.5f,
+	              CELL_SIZE_Z * simParams.gridSize.z * (1.f / 3.f), 1.f);
+	const Vec4 P2(CELL_SIZE_X * simParams.gridSize.x * 0.5f,
+	              CELL_SIZE_Y * simParams.gridSize.y * 0.5f,
+	              CELL_SIZE_Z * simParams.gridSize.z * (2.f / 3.f), 1.f);
+
+	const int n = (int)simParams.numBodies;
+	const int half = n / 2;
+	for (int i = 0; i < n; i++)
+	{
+		const bool group1 = (i < half);
+		// spread in a sphere around this group's centre (fz = 1/3 or 2/3)
+		(*pos)[i]   = clusterPos(0.5f, 0.5f, group1 ? (1.f / 3.f) : (2.f / 3.f), r);
+		// head toward the opposite group's centre
+		const Vec4& target = group1 ? P2 : P1;
+		(*vel)[i]   = dirTo((*pos)[i], target, maxVel);
+		(*goal)[i]  = goalAt(target);
+		(*color)[i] = group1 ? COLOR_GREEN : COLOR_RED;
+	}
+}
+
+//display name for each initial placement (index == currentInitPlacement)
+static const char* const kPlacementNames[MODEL_INIT_PLACEMENT_MAX] = {
+	"one group",
+	"two groups",
+	"two groups asymmetric",
+	"four groups",
+	"three groups",
+};
+
+const char* Simulation::getPlacementName() const {
+	if (currentInitPlacement >= 0 && currentInitPlacement < MODEL_INIT_PLACEMENT_MAX)
+		return kPlacementNames[currentInitPlacement];
+	return "";
+}
+
 void Simulation::createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color){
 	const float r = TEST_SETUP_RADIUS / 2;
 	const float maxVel = simParams.maxVel;
 
 	switch(currentInitPlacement){
 	case 0:		//random placement inside the cube, goal = own start position
-		for (int i = 0; i < (int)simParams.numBodies; i++)
-		{
-			float x = randFloat(2.f * CELL_SIZE_X, simParams.gridSize.x * CELL_SIZE_X - CELL_SIZE_X * 2.f);
-			float z = randFloat(2.f * CELL_SIZE_Z, simParams.gridSize.z * CELL_SIZE_Z - CELL_SIZE_Z * 2.f);
-			float y = randFloat(2.f * CELL_SIZE_Y, simParams.gridSize.y * CELL_SIZE_Y - CELL_SIZE_Y * 2.f);
-			(*pos)[i] = Vec4(x, y, z, 1.f);
-			(*vel)[i] = Vec4(randFloat(-maxVel, maxVel), randFloat(-maxVel, maxVel), randFloat(-maxVel, maxVel), 0.f);
-			(*goal)[i] = Vec4(x, y, z, 0.0f);
-			(*color)[i] = BOID_COLOR;
-		}
+		initRandom(pos, vel, goal, color);
 		break;
-	case 1:		//two groups moving towards each other, goals swapped pairwise
-		for (int i = 0; i < (int)simParams.numBodies; i += 2)
+	case 1:		//"two groups": head-on along Z, contiguous halves (goals swapped)
+	{
+		const int n = (int)simParams.numBodies;
+		const int half = n / 2;
+		for (int i = 0; i < half; i++)
 		{
+			const int j = i + half;
 			(*pos)[i] = clusterPos(.5f, .5f, .25f, r);
 			(*vel)[i] = Vec4(0.0f, 0.0f, randFloat(0.0f, maxVel), 0.0f);
 			(*color)[i] = COLOR_GREEN;
 
-			(*pos)[i + 1] = clusterPos(.5f, .5f, .75f, r);
-			(*vel)[i + 1] = Vec4(0.0f, 0.0f, randFloat(-maxVel, 0.0f), 0.0f);
-			(*color)[i + 1] = COLOR_RED;
+			(*pos)[j] = clusterPos(.5f, .5f, .75f, r);
+			(*vel)[j] = Vec4(0.0f, 0.0f, randFloat(-maxVel, 0.0f), 0.0f);
+			(*color)[j] = COLOR_RED;
 
-			(*goal)[i] = goalAt((*pos)[i + 1]);
-			(*goal)[i + 1] = goalAt((*pos)[i]);
+			(*goal)[i] = goalAt((*pos)[j]);
+			(*goal)[j] = goalAt((*pos)[i]);
 		}
 		break;
-	case 2:		//small group and large group moving towards each other's center
+	}
+	case 2:		//"two groups asymmetric": small (first 1/8) vs large group, already contiguous
 	{
 		Vec4 goalFar = goalAt(clusterPos(.5f, .5f, .75f, 0.f));
 		Vec4 goalNear = goalAt(clusterPos(.5f, .5f, .25f, 0.f));
@@ -447,45 +514,63 @@ void Simulation::createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std:
 		}
 		break;
 	}
-	case 3:		//four groups converging at the center, goals swapped pairwise
-		for (int i = 0; i < (int)simParams.numBodies; i += 4)
+	case 3:		//"four groups": converging at the centre, contiguous fourths (goals swapped)
+	{
+		const int n = (int)simParams.numBodies;
+		const int q = n / 4;
+		for (int i = 0; i < q; i++)
 		{
-			(*pos)[i] = clusterPos(.5f, .5f, .25f, r);
-			(*vel)[i] = Vec4(0.0f, 0.0f, randFloat(0.0f, maxVel), 0.0f);
-			(*color)[i] = COLOR_RED;
+			const int a = i, b = i + q, c = i + 2 * q, d = i + 3 * q;
+			(*pos)[a] = clusterPos(.5f, .5f, .25f, r); (*vel)[a] = Vec4(0.0f, 0.0f, randFloat(0.0f, maxVel), 0.0f);  (*color)[a] = COLOR_RED;
+			(*pos)[b] = clusterPos(.5f, .5f, .75f, r); (*vel)[b] = Vec4(0.0f, 0.0f, randFloat(-maxVel, 0.0f), 0.0f); (*color)[b] = COLOR_GREEN;
+			(*pos)[c] = clusterPos(.25f, .5f, .5f, r); (*vel)[c] = Vec4(randFloat(0.0f, maxVel), 0.0f, 0.0f, 0.0f);  (*color)[c] = COLOR_YELLOW;
+			(*pos)[d] = clusterPos(.75f, .5f, .5f, r); (*vel)[d] = Vec4(randFloat(-maxVel, 0.0f), 0.0f, 0.0f, 0.0f); (*color)[d] = COLOR_BLUE;
 
-			(*pos)[i + 1] = clusterPos(.5f, .5f, .75f, r);
-			(*vel)[i + 1] = Vec4(0.0f, 0.0f, randFloat(-maxVel, 0.0f), 0.0f);
-			(*color)[i + 1] = COLOR_GREEN;
-
-			(*pos)[i + 2] = clusterPos(.25f, .5f, .5f, r);
-			(*vel)[i + 2] = Vec4(randFloat(0.0f, maxVel), 0.0f, 0.0f, 0.0f);
-			(*color)[i + 2] = COLOR_YELLOW;
-
-			(*pos)[i + 3] = clusterPos(.75f, .5f, .5f, r);
-			(*vel)[i + 3] = Vec4(randFloat(-maxVel, 0.0f), 0.0f, 0.0f, 0.0f);
-			(*color)[i + 3] = COLOR_BLUE;
-
-			(*goal)[i] = goalAt((*pos)[i + 1]);
-			(*goal)[i + 1] = goalAt((*pos)[i]);
-			(*goal)[i + 2] = goalAt((*pos)[i + 3]);
-			(*goal)[i + 3] = goalAt((*pos)[i + 2]);
+			(*goal)[a] = goalAt((*pos)[b]); (*goal)[b] = goalAt((*pos)[a]);
+			(*goal)[c] = goalAt((*pos)[d]); (*goal)[d] = goalAt((*pos)[c]);
 		}
 		break;
-	case 4:		//two groups crossing at the center
-		for (int i = 0; i < (int)simParams.numBodies; i += 2)
+	}
+	case 4:		//"three groups": converging at the centre, contiguous thirds
+	{
+		const int n = (int)simParams.numBodies;
+		const int t = n / 3;
+		for (int i = 0; i < t; i++)
+		{
+			const int a = i, b = i + t, c = i + 2 * t;
+			(*pos)[a] = clusterPos(.5f, .5f, .25f, r); (*vel)[a] = Vec4(0.0f, 0.0f, randFloat(0.0f, maxVel), 0.0f);  (*color)[a] = COLOR_GREEN;
+			(*pos)[b] = clusterPos(.5f, .5f, .75f, r); (*vel)[b] = Vec4(0.0f, 0.0f, randFloat(-maxVel, 0.0f), 0.0f); (*color)[b] = COLOR_RED;
+			(*pos)[c] = clusterPos(.25f, .5f, .5f, r); (*vel)[c] = Vec4(randFloat(0.0f, maxVel), 0.0f, 0.0f, 0.0f);  (*color)[c] = COLOR_YELLOW;
+
+			(*goal)[a] = goalAt((*pos)[b]); (*goal)[b] = goalAt((*pos)[c]); (*goal)[c] = goalAt((*pos)[a]);
+		}
+		// numBodies may not divide evenly by 3; park any leftover boids in the first group
+		for (int i = 3 * t; i < n; i++)
 		{
 			(*pos)[i] = clusterPos(.5f, .5f, .25f, r);
 			(*vel)[i] = Vec4(0.0f, 0.0f, randFloat(0.0f, maxVel), 0.0f);
-			(*goal)[i] = goalAt(clusterPos(.5f, .5f, .75f, r));
+			(*goal)[i] = goalAt(clusterPos(.5f, .5f, .75f, 0.f));
 			(*color)[i] = COLOR_GREEN;
-
-			(*pos)[i + 1] = clusterPos(.75f, .5f, .5f, r);
-			(*vel)[i + 1] = Vec4(randFloat(-maxVel, 0.0f), 0.0f, 0.0f, 0.0f);
-			(*goal)[i + 1] = goalAt(clusterPos(.25f, .5f, .5f, r));
-			(*color)[i + 1] = COLOR_RED;
 		}
 		break;
+	}
+	/* old placement 4 ("two groups crossing at the centre") -- disabled
+	for (int i = 0; i < (int)simParams.numBodies; i += 2)
+	{
+		(*pos)[i] = clusterPos(.5f, .5f, .25f, r);
+		(*vel)[i] = Vec4(0.0f, 0.0f, randFloat(0.0f, maxVel), 0.0f);
+		(*goal)[i] = goalAt(clusterPos(.5f, .5f, .75f, r));
+		(*color)[i] = COLOR_GREEN;
+
+		(*pos)[i + 1] = clusterPos(.75f, .5f, .5f, r);
+		(*vel)[i + 1] = Vec4(randFloat(-maxVel, 0.0f), 0.0f, 0.0f, 0.0f);
+		(*goal)[i + 1] = goalAt(clusterPos(.25f, .5f, .5f, r));
+		(*color)[i + 1] = COLOR_RED;
+	}
+
+	   old placement 5 ("two spherical groups, each aiming at the other's centre") -- disabled
+	   initTwoGroups(pos, vel, goal, color);
+	*/
 	}
 }
 

@@ -375,7 +375,8 @@ void OverlayText::render(){
 	textSimple[0] = statsString.c_str();
 
 	strstream.str(std::string());
-	strstream << "Scene " << Simulation::getInstance().getSceneName();
+	strstream << "Scene " << Simulation::getInstance().getSceneName()
+	          << " - " << Simulation::getInstance().getPlacementName();
 	const std::string sceneString = strstream.str();
 	textSimple[1] = sceneString.c_str();
 

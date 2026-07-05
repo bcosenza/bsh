@@ -78,6 +78,11 @@ private:
 
 	//create position and velocity data for boids dependend on currentInitPlacement
 	void createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color);
+	//placement: every boid at a uniform-random position in the world cube with a random velocity
+	void initRandom(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color);
+	//placement: two spherical groups (centres P1, P2 at 1/3 and 2/3 of the world),
+	//each boid heading toward the opposite group's centre
+	void initTwoGroups(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color);
 	//restart the simulation
 	void restart(int modelNum);
 	//set simParams and restart for a given model number
@@ -114,6 +119,8 @@ public:
 	void keyPress(unsigned char key);
 	//name of the current scene, e.g. "3: SH"
 	const char* getSceneName() const { return currentSceneName; }
+	//display name of the current initial placement (for the overlay)
+	const char* getPlacementName() const;
 	//returns vector with all objects to be rendered
 	std::vector<Renderable*> getRenderList();
 
