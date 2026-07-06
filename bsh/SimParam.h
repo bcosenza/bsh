@@ -50,6 +50,12 @@
 #define CELL_SIZE_Y 15.0f
 #define CELL_SIZE_Z 15.0f
 
+//cell size (world units) of the uniform acceleration grid used by the grid model
+//(sycl/BoidGridBase) and its wireframe overlay. Equals the largest interaction
+//radius so a 3x3x3 cell search covers a neighbourhood; keep in sync with the
+//radii (cohesionRadius) in sycl/BoidModelSimpleSYCL.h.
+#define GRID_ACCEL_CELL_SIZE 80.0f
+
 //number of cells per axis of the SH model
 #define GRID_SIZE_X_SH 20
 #define GRID_SIZE_Y_SH 20

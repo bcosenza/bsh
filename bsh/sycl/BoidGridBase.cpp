@@ -139,26 +139,9 @@ void BoidGridBase::simulate(float dt){
 		sf4 p = sortedPos[k];
 		sf4 v = sortedVel[k];
 
-		// this boid's cell
-		int gx = gridCoord(p.x(), origin.x(), cs, dimX);
-		int gy = gridCoord(p.y(), origin.y(), cs, dimY);
-		int gz = gridCoord(p.z(), origin.z(), cs, dimZ);
-
-		// accumulate the three rules over the 3x3x3 block of cells
-		FlockAccum acc;
-		for (int dz = -1; dz <= 1; dz++)
-		for (int dy = -1; dy <= 1; dy++)
-		for (int dx = -1; dx <= 1; dx++){
-			int cx = gx + dx, cy = gy + dy, cz = gz + dz;
-			if (cx < 0 || cy < 0 || cz < 0 || cx >= dimX || cy >= dimY || cz >= dimZ)
-				continue;
-			int c = cellIndex(cx, cy, cz, dimX, dimY);
-			int start = cellStart[c];
-			if (start < 0) continue;                 // empty cell
-			int end = cellEnd[c];
-			for (int j = start; j < end; j++)
-				accumulateNeighbour(acc, p, v, sortedPos[j], sortedVel[j]);
-		}
+		// accumulate the three rules over the 3x3x3 block of cells around this boid
+		FlockAccum acc = gridAccumulate(p, v, sortedPos, sortedVel,
+		                                cellStart, cellEnd, cs, dimX, dimY, dimZ, origin);
 
 		// same steering + dynamics as the simple model
 		const sf4 steer = finalizeSteer(acc, p, v, sp);

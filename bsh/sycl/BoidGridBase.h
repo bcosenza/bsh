@@ -76,6 +76,36 @@ protected:
 		return (gz * dimY + gy) * dimX + gx;
 	}
 
+	// Accumulate the three flocking rules for a boid at p (velocity v) over the
+	// 3x3x3 block of cells around it (device code). pos/vel are the sorted state,
+	// cellStart/cellEnd the per-cell ranges. Shared by the grid model and its
+	// derived models so the neighbour search stays in one place.
+	static FlockAccum gridAccumulate(const sf4& p, const sf4& v,
+	                                 const sf4* pos, const sf4* vel,
+	                                 const int* cellStart, const int* cellEnd,
+	                                 float cs, int dimX, int dimY, int dimZ, const sf4& origin)
+	{
+		int gx = gridCoord(p.x(), origin.x(), cs, dimX);
+		int gy = gridCoord(p.y(), origin.y(), cs, dimY);
+		int gz = gridCoord(p.z(), origin.z(), cs, dimZ);
+
+		FlockAccum acc;
+		for (int dz = -1; dz <= 1; dz++)
+		for (int dy = -1; dy <= 1; dy++)
+		for (int dx = -1; dx <= 1; dx++){
+			int cx = gx + dx, cy = gy + dy, cz = gz + dz;
+			if (cx < 0 || cy < 0 || cz < 0 || cx >= dimX || cy >= dimY || cz >= dimZ)
+				continue;
+			int c = cellIndex(cx, cy, cz, dimX, dimY);
+			int start = cellStart[c];
+			if (start < 0) continue;
+			int end = cellEnd[c];
+			for (int j = start; j < end; j++)
+				accumulateNeighbour(acc, p, v, pos[j], vel[j]);
+		}
+		return acc;
+	}
+
 	// Build the grid for the current state in d_pos/d_vel (steps 1-4): hash on the
 	// host, sort the (hash, index) pairs, fill the per-cell [start, end) ranges and
 	// reorder position/velocity into d_pos_out/d_vel_out (sorted order).

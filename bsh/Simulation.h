@@ -18,6 +18,7 @@
 #include "SimParam.h"
 #include "BoidModel.h"
 #include "WorldBox.h"
+#include "Grid.h"
 #include "WorldGround.h"
 #include "OverlayText.h"
 #include "SkyBox.h"
@@ -38,6 +39,7 @@ private:
 	LogFile* logFile;
 	simParams_t simParams;
 	WorldBox* worldBox;
+	Grid* grid;
 	WorldGround* worldGround;
 	OverlayText* overlayText;
 	Skybox* skybox;

@@ -93,6 +93,7 @@ set(SHARED_SOURCES
     Shader_utils.cpp
     OverlayText.cpp
     WorldBox.cpp
+    Grid.cpp
     WorldGround.cpp
     Skybox.cpp
     Column.cpp
@@ -122,7 +123,9 @@ set(OPENCL_SOURCES
 # SYCL backend: Simple (brute-force) and Grid-accelerated models (see sycl/).
 set(SYCL_SOURCES
     sycl/BoidModelSimpleSYCL.cpp
-    sycl/BoidGridBase.cpp)
+    sycl/BoidGridBase.cpp
+    sycl/BoidGroupAvoidance.cpp
+    sycl/BoidGroupAvoidanceSH.cpp)
 
 # Copy the runtime assets a target opens by its own filename (textures, fonts)
 # next to its executable. cl/ and shaders/ stay at the repo root and are reached

@@ -216,6 +216,8 @@ void GFX::keyboardHandler(unsigned char key, int x, int y){
 	case 'R':	
 	case 'v':	//make worldbox visible/invisible
 	case 'V':
+	case 'l':	//make acceleration grid visible/invisible
+	case 'L':
 	case 't':	//switch current initial boid setup
 	case 'T':
 	case 'g':	//
