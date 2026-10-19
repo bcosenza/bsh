@@ -1,0 +1,64 @@
+Shared machinery
+All scenes run OpenCL kernels (with GL interop when available) over a bounded world of cells, defined in SimParam.h. Runtime keys: r restart, +/- double/halve boid count, t cycle through 5 initial placements, v/g/s toggle box/ground/skybox. The placements (Simulation.cpp:492-674) are: 0 random in box (goal = own start position), 1 two spherical groups facing each other, 2 small vs. large group, 3 four groups converging, 4 two groups crossing at center. Default is 0.
+
+1 — Simple (BoidModelSimple.cpp, boidModelSimple_kernel_v2.cl)
+What: Naive baseline — classic Reynolds flocking with brute-force O(N²) neighbor search.
+Initial: 8,192 boids, random placement, random velocities, 80³ grid (used only for world size).
+Behavior: Each boid scans all others; within radius 5 and a field-of-view check it accumulates cohesion, alignment, and separation (within 2.5), clamps to max velocity 10, bounces at world borders.
+Hints: Tile positions into local memory (a _v3.cl file exists but v2 is loaded); replace the per-pair acospi/length FOV math with a cosine-threshold comparison; compare squared distances to skip square roots.
+
+2 — Grid (BoidModelGrid.cpp, boidModelGrid_kernel_v3.cl)
+What: GPU-optimized flocking: boids hashed to 15-unit cells, bitonic-sorted by cell, pos/vel reordered for coalesced access, neighbor search over adjacent cells only.
+Initial: 8,192 boids, random placement, 80³ grid, maxVel 9.5 (must stay below cell size).
+Behavior: Same three flocking rules as Simple, but neighbor search limited to surrounding cells; standard camera.
+Hints: Cell size (15) is 3× the interaction radius (5), so each boid scans ~27× more volume than needed — match cell size to radius. Replace bitonic sort with radix sort for large N. LOCAL_SIZE_LIMIT must be manually kept in sync between SimParam.h:100 and bitonic_sort.cl — pass it as an OpenCL -D build option instead.
+
+3 — SH (BoidModelSH.cpp, boidModelSH_kernel_v1.cl)
+What: The paper's headline model: Grid model extended with Behavioural Spherical Harmonics. Each cell aggregates its boids' velocities into SH coefficients (sumVelSH); boids then evaluate every other cell's SH field, weighted 1/distance, for long-range collision avoidance (useSH).
+Initial: 8,192 boids, random placement, 20³ grid, dedicated SH camera preset.
+Behavior: Local flocking from the grid + smooth long-range avoidance of distant oncoming flocks.
+Hints: useSH loops over all 8,000 cells per work-group — add a distance cutoff or a hierarchical (multi-resolution) far-field aggregation. The kernel file contains four useSH variants (one commented out) — prune dead code. An unused _v2.cl also exists.
+
+4 — Grid 2D (BoidModelGrid_2D.cpp)
+What: Per the header comment, "exactly the same as BoidModelGrid, velocity on Y axis set to 0."
+Initial: 65,536 boids on a 160×1×160 grid, ground plane visible, far top-down camera.
+Behavior: Planar flocking — large 2D swarms.
+Hints: It still pays full 3D costs. A true 2D variant — 2D hash, 9-cell neighborhood instead of 27, Y components dropped from buffers — would roughly triple neighbor-search efficiency and cut memory traffic.
+
+5 — SH 2D (BoidModelSH_2D.cpp)
+What: SH model constrained to a plane (same "Y velocity zeroed" approach).
+Initial: Runs with NUM_BOIDS_SIMPLE (8,192) — note Simulation.cpp:350 ignores the defined NUM_BOIDS_SH_2D (65,536), which looks unintended. Grid 100×1×100, 2D camera.
+Behavior: Long-range SH avoidance in the plane.
+Hints: Fix the boid-count constant. In 2D, full spherical harmonics are overkill — circular harmonics (a Fourier basis on the circle) would be cheaper and a better fit for planar direction distributions.
+
+6 — Way1 (boidModelSHWay1.cpp)
+What: SH model + goal seeking ("way finding") with per-cell SH aggregation. Each boid steers along the straight unit vector to its goal (wPath 5.5) blended with flocking, while the SH field steers it around oncoming long-range traffic. Goals and colors are reordered along with positions each frame.
+Initial: 8,192 boids, 16³ grid, small-world camera.
+Behavior caveat: With the default placement 0, each boid's goal is its own start position, so the scene just mills in place — press t to switch to placements 1–4, where colored groups swap sides and the wayfinding is actually visible.
+Hints: Default scenes 6–9/0 to placement 1 or 4 so they demo correctly out of the box. There's an alternative useSHLookahead kernel behind USE_LOOKAHEAD (off in SimParam.h:13) worth experimenting with. Goal arrival has no damping — boids orbit their goal; add an "arrival" slowing radius.
+
+7 — Way2 (BoidModelSHWay2.cpp)
+What: Same wayfinding scenario, but SH is computed per-boid instead of per-cell: evalSH produces one coefficient set per boid and useSH iterates over all N boids (tiled through local memory) — effectively the unaggregated O(N²) reference variant.
+Initial: Identical to Way1 (same weights, grid, camera, placement caveat).
+Behavior: Visually similar to Way1 but much more expensive; useful as ground truth for the cell-aggregation approximation.
+Hints: Keep it as an accuracy baseline — an on-screen error metric comparing Way1 vs. Way2 steering would make the trade-off measurable. A duplicate useSH kernel sits commented out in the .cl; remove it.
+
+8 — Obstacle (boidModelSHObstacle.cpp)
+What: Static obstacle avoidance via SH. Three box columns (height 10) stand in a 16³ world; their surface repulsion vectors are projected once at model creation into per-cell obstacle SH fields (obstacleSH, repulsion factor 21).
+Initial: 8,192 goal-seeking boids (wPath 2.0, alignment weight 0), columns rendered.
+Behavior: Boids flow toward their goals and bend smoothly around the columns.
+Hints: A leftover debug readback of 126 Vec4s in loadData (boidModelSHObstacle.cpp:530) should go. Zero alignment makes streams ragged — a small alignment weight produces nicer lane formation. Since the obstacle field is precomputed, moving obstacles could be supported cheaply by re-running obstacleSH only when geometry changes.
+
+9 — Combined (BoidModelSHCombined.cpp)
+What: Way1's goal seeking + scene 8's obstacle field in one kernel — colored groups navigating around the three columns simultaneously.
+Initial: Same as scene 8, plus per-group colors; the boid-SH, no-SH, and obstacle-SH contributions are balanced by hardcoded constants in the kernel (FACTOR .001, FACTOR_NO .0001, FACTOR_OBST 21).
+Behavior: The most complete demo: long-range agent avoidance, wayfinding, and obstacle avoidance together.
+Hints: Promote those tuning factors from #defines in the .cl into simParams so they can be tweaked at runtime; same placement-default caveat as Way1.
+
+0 — Tunnel (BoidModelSHObstacleTunnel.cpp)
+What: Congestion test case: a wall with a tunnel opening (placed at cells (3,3,5), half-height 5) that goal-seeking boids must funnel through; strongest obstacle repulsion (FACTOR_OBST 30).
+Initial: 8,192 boids, 16³ grid, tunnel rendered, columns hidden.
+Behavior: Flocks queue and squeeze through the opening — a classic crowd-bottleneck benchmark.
+Hints: Add a throughput / time-to-goal metric to make it quantitative. The tunnel geometry buffer sizes are magic numbers in Simulation.cpp:92 (406, 208) — derive them from the Tunnel object so geometry changes can't silently overflow.
+
+Cross-cutting improvements: profiling units are inconsistent (times[0] divides by 1,000, times[2] by 1,000,000 — compare boidModelSHWay1.cpp:102 vs. boidModelSHWay1.cpp:184); every kernel launch is followed by queue.finish(), which serializes the pipeline — event dependencies would let the driver overlap work; and the simParams_t struct plus several constants are duplicated by hand between SimParam.h and every .cl file — a shared include or -D build options would eliminate a whole class of sync bugs.

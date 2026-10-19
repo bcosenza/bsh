@@ -46,6 +46,31 @@ protected:
 		return (len > 1e-6f) ? (u / len) : sf4(0.0f);
 	}
 
+	// --- order-3 real spherical-harmonics basis (shared by the SH boid models) ---
+	static constexpr float SH_BAND0 = 0.2820947917738781f;   // constant band-0 value
+
+	// Fills the 8 non-constant order-3 SH coefficients for a unit direction (x,y,z);
+	// band 0 is the constant SH_BAND0. Plain arithmetic, so it runs on host and
+	// device. Numerical form from P.-P. Sloan (as in the OpenCL SHEval3).
+	static void shEval3(float x, float y, float z, float out[8])
+	{
+		const float fZ2 = z * z;
+		out[1] = 0.4886025119029199f * z;
+		out[5] = 0.9461746957575601f * fZ2 - 0.3153915652525201f;
+		const float fC0 = x, fS0 = y;
+		const float fTmpA = -0.48860251190292f;
+		out[2] = fTmpA * fC0;
+		out[0] = fTmpA * fS0;
+		const float fTmpB = -1.092548430592079f * z;
+		out[6] = fTmpB * fC0;
+		out[4] = fTmpB * fS0;
+		const float fC1 = x * fC0 - y * fS0;
+		const float fS1 = x * fS0 + y * fC0;
+		const float fTmpC = 0.5462742152960395f;
+		out[7] = fTmpC * fC1;
+		out[3] = fTmpC * fS1;
+	}
+
 	// Repulsive world boundary (device code, shared by SYCL boid models).
 	// Returns a correction velocity that pushes a boid at world position p back
 	// toward the interior when it lies within boundingBoxFactor cells of a world
