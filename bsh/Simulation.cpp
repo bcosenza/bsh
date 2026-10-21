@@ -5,6 +5,9 @@
 #include "BoidGridBase.h"          // SYCL: Grid (uniform-grid acceleration) scene
 #include "BoidGroupAvoidance.h"    // SYCL: Two groups avoidance scene
 #include "BoidGroupAvoidanceSH.h"  // SYCL: Two groups avoidance with SH scene
+#include "Boid4GroupsAvoidanceSH.h" // SYCL: Four groups avoidance with SH scene
+#include "BoidThreeColumnsSH.h"     // SYCL: Three columns avoidance with SH scene
+#include "BoidTunnelSH.h"           // SYCL: Tunnel SH scene
 #else
 #include "BoidModelCL.h"           // concrete OpenCL models constructed in createModel()
 #endif
@@ -78,23 +81,55 @@ static const SceneConfig sceneTable[] = {
 	  CAMERA_PRESET_2D_FAR, true, false, false },
 #endif
 
+#ifdef USE_SYCL
+	// SYCL: scene 5 is the grid-based "Four groups avoidance with SH" model; same
+	// 3-D world/tuning as the grid scene (not the SH-2D world).
+	{ BOID_SH_2D, "5: Four groups avoidance with SH", NUM_BOIDS_SH,
+	  WEIGHT_ALIGNMENT, WEIGHT_COHESION, WEIGHT_SEPARATION, WEIGHT_OWN, 0.f,
+	  MAX_VEL_SIMPLE, MAX_VEL_COR_SIMPLE,
+	  GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z,
+	  CAMERA_PRESET_STANDARD, false, false, false },
+#else
 	{ BOID_SH_2D, "5: SH 2D", NUM_BOIDS_SH_2D,
 	  WEIGHT_ALIGNMENT_SH_2D, WEIGHT_COHESION_SH_2D, WEIGHT_SEPARATION_SH_2D, WEIGHT_OWN_SH_2D, 0.f,
 	  MAX_VEL_GRID, MAX_VEL_COR_GRID,
 	  GRID_SIZE_X_SH_2D, GRID_SIZE_Y_SH_2D, GRID_SIZE_Z_SH_2D,
 	  CAMERA_PRESET_2D, true, false, false },
+#endif
 
+#ifdef USE_SYCL
+	// SYCL: scene 6 is the grid-based "Three columns avoidance with SH" model. It
+	// uses the small (16^3) world so the columns (built at cells 6-9) sit centrally,
+	// and shows the columns.
+	{ BOID_SH_WAY1, "6: Three columns avoidance with SH", NUM_BOIDS_SH,
+	  WEIGHT_ALIGNMENT, WEIGHT_COHESION, WEIGHT_SEPARATION, WEIGHT_OWN, 0.f,
+	  MAX_VEL_SIMPLE, MAX_VEL_COR_SIMPLE,
+	  GRID_SIZE_X_SH_WAY1, GRID_SIZE_Y_SH_WAY1, GRID_SIZE_Z_SH_WAY1,
+	  CAMERA_PRESET_SH_SMALL, false, true, false },
+#else
 	{ BOID_SH_WAY1, "6: SH Way 1", NUM_BOIDS_SH,
 	  WEIGHT_ALIGNMENT_SH_WAY1, WEIGHT_COHESION_SH_WAY1, WEIGHT_SEPARATION_SH_WAY1, WEIGHT_OWN_SH_WAY1, WEIGHT_GOAL_SH_WAY1,
 	  MAX_VEL_GRID, MAX_VEL_COR_GRID,
 	  GRID_SIZE_X_SH_WAY1, GRID_SIZE_Y_SH_WAY1, GRID_SIZE_Z_SH_WAY1,
 	  CAMERA_PRESET_SH_SMALL, false, false, false },
+#endif
 
+#ifdef USE_SYCL
+	// SYCL: scene 7 is the grid-based "Tunnel SH" model -- boids funnel through a
+	// wall with openings. Small (16^3) world so the tunnel (built at cell 3,3,5)
+	// sits centrally, and shows the tunnel.
+	{ BOID_SH_WAY2, "7: Tunnel SH", NUM_BOIDS_SH,
+	  WEIGHT_ALIGNMENT, WEIGHT_COHESION, WEIGHT_SEPARATION, WEIGHT_OWN, 0.f,
+	  MAX_VEL_SIMPLE, MAX_VEL_COR_SIMPLE,
+	  GRID_SIZE_X_SH_WAY1, GRID_SIZE_Y_SH_WAY1, GRID_SIZE_Z_SH_WAY1,
+	  CAMERA_PRESET_SH_SMALL, false, false, true },
+#else
 	{ BOID_SH_WAY2, "7: SH Way 2", NUM_BOIDS_SH,
 	  WEIGHT_ALIGNMENT_SH_WAY1, WEIGHT_COHESION_SH_WAY1, WEIGHT_SEPARATION_SH_WAY1, WEIGHT_OWN_SH_WAY1, WEIGHT_GOAL_SH_WAY1,
 	  MAX_VEL_GRID, MAX_VEL_COR_GRID,
 	  GRID_SIZE_X_SH_WAY1, GRID_SIZE_Y_SH_WAY1, GRID_SIZE_Z_SH_WAY1,
 	  CAMERA_PRESET_SH_SMALL, false, false, false },
+#endif
 
 	{ BOID_SH_OBSTACLE, "8: SH Obstacle", NUM_BOIDS_SH,
 	  WEIGHT_ALIGNMENT_SH_OBSTACLE, WEIGHT_COHESION_SH_OBSTACLE, WEIGHT_SEPARATION_SH_OBSTACLE, WEIGHT_OWN_SH_OBSTACLE, WEIGHT_GOAL_SH_OBSTACLE,
@@ -114,6 +149,16 @@ static const SceneConfig sceneTable[] = {
 	  GRID_SIZE_X_SH_OBSTACLE, GRID_SIZE_Y_SH_OBSTACLE, GRID_SIZE_Z_SH_OBSTACLE,
 	  CAMERA_PRESET_SH_SMALL, false, false, true },
 };
+
+// Wireframe of the uniform acceleration grid for the current scene's world:
+// GRID_ACCEL_CELL_SIZE cells (matching sycl/BoidGridBase) covering gridSize*cellSize.
+static Grid* makeAccelGrid(const simParams_t& sp, bool visible){
+	return new Grid(GRID_ACCEL_CELL_SIZE,
+		(unsigned int)ceil((sp.gridSize.x * sp.cellSize.x) / GRID_ACCEL_CELL_SIZE),
+		(unsigned int)ceil((sp.gridSize.y * sp.cellSize.y) / GRID_ACCEL_CELL_SIZE),
+		(unsigned int)ceil((sp.gridSize.z * sp.cellSize.z) / GRID_ACCEL_CELL_SIZE),
+		visible);
+}
 
 static const SceneConfig* findScene(int id){
 	for (size_t i = 0; i < sizeof(sceneTable) / sizeof(sceneTable[0]); i++)
@@ -144,6 +189,11 @@ Simulation::Simulation() {
 	goal.resize(simParams.numBodies);
 	color.resize(simParams.numBodies);
 
+	// createData() consults the current scene and the tunnel, which are only set up
+	// further down; give them safe values for this first call
+	currentModel = BOID_SIMPLE;
+	tunnel = NULL;
+
 	currentInitPlacement = MODEL_INIT_PLACEMENT;
 	createData(&pos, &vel, &goal, &color);
 
@@ -162,13 +212,8 @@ Simulation::Simulation() {
 #endif
 	
 	worldBox = new WorldBox(simParams.gridSize.x, TRUE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
-	// wireframe of the acceleration grid: cover the world with GRID_ACCEL_CELL_SIZE
-	// cells (matches sycl/BoidGridBase). Hidden by default; toggle with 'l'.
-	grid = new Grid(GRID_ACCEL_CELL_SIZE,
-		(unsigned int)ceil((simParams.gridSize.x * CELL_SIZE_X) / GRID_ACCEL_CELL_SIZE),
-		(unsigned int)ceil((simParams.gridSize.y * CELL_SIZE_Y) / GRID_ACCEL_CELL_SIZE),
-		(unsigned int)ceil((simParams.gridSize.z * CELL_SIZE_Z) / GRID_ACCEL_CELL_SIZE),
-		false);
+	// wireframe of the acceleration grid, hidden by default; toggle with 'l'
+	grid = makeAccelGrid(simParams, false);
 	worldGround = new WorldGround(FALSE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
 	overlayText = new OverlayText();
 	skybox = new Skybox("", "textures/posx.tga", "textures/negx.tga", "textures/negz.tga", "textures/posz.tga", "textures/negy.tga", "textures/posy.tga");
@@ -239,9 +284,16 @@ void Simulation::restart(int modelNum){
 	worldGround = new WorldGround(scene->flatGround, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
 	worldBox = new WorldBox(simParams.gridSize.x, TRUE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
 
+	// the world size depends on the scene, so rebuild the grid overlay to match it
+	// (keeping whether the user has it switched on)
+	const bool gridVisible = grid->isVisible();
+	delete grid;
+	grid = makeAccelGrid(simParams, gridVisible);
+
 	renderList[3] = worldGround;
 	renderList[1] = boidModel;
 	renderList[0] = worldBox;
+	renderList[9] = grid;
 }
 
 void Simulation::columnObstacleData(std::vector<Vec4>* cor, std::vector<unsigned int>* start, std::vector<unsigned int>* end, std::vector<Vec4>* posObst){
@@ -262,6 +314,19 @@ BoidModel* Simulation::createModel(int modelNum){
 	case BOID_GRID:		return new BoidGridBase(pos, vel, color, &simParams);
 	case BOID_SH:		return new BoidGroupAvoidance(pos, vel, color, &simParams);
 	case BOID_GRID_2D:	return new BoidGroupAvoidanceSH(pos, vel, color, &simParams);
+	case BOID_SH_2D:	return new Boid4GroupsAvoidanceSH(pos, vel, color, &simParams);
+	case BOID_SH_WAY1: {
+		std::vector<Vec4> cor, posObst;
+		std::vector<unsigned int> start, end;
+		columnObstacleData(&cor, &start, &end, &posObst);
+		return new BoidThreeColumnsSH(pos, vel, color, &simParams, cor, start, end, posObst);
+	}
+	case BOID_SH_WAY2: {
+		std::vector<Vec4> cor(tunnel->obstacleCornerCount()), posObst(tunnel->obstacleSegmentCount());
+		std::vector<unsigned int> start(tunnel->obstacleSegmentCount()), end(tunnel->obstacleSegmentCount());
+		tunnel->getObstacleForce(&cor, &start, &end, &posObst, 0);
+		return new BoidTunnelSH(pos, vel, color, &simParams, cor, start, end, posObst, goal);
+	}
 	default:			return new BoidModelSimpleSYCL(pos, vel, color, &simParams);
 	}
 #else
@@ -325,13 +390,18 @@ float Simulation::getTimeDiff(){
 
 void Simulation::switchToModel(int modelNum){
 #ifdef USE_SYCL
-	// the SYCL build ports the Simple, Grid and the two group-avoidance models
+	// the SYCL build ports the Simple, Grid, the group-avoidance and the obstacle models
 	if (modelNum != BOID_SIMPLE && modelNum != BOID_GRID &&
-	    modelNum != BOID_SH && modelNum != BOID_GRID_2D)
+	    modelNum != BOID_SH && modelNum != BOID_GRID_2D && modelNum != BOID_SH_2D &&
+	    modelNum != BOID_SH_WAY1 && modelNum != BOID_SH_WAY2)
 		return;
-	// the group-avoidance scenes default to the two-groups placement
-	if (modelNum == BOID_SH || modelNum == BOID_GRID_2D)
+	// two-group scenes default to the two-groups placement (the tunnel too, so the
+	// groups funnel through the wall); the four-group and three-columns scenes to
+	// the four-groups placement
+	if (modelNum == BOID_SH || modelNum == BOID_GRID_2D || modelNum == BOID_SH_WAY2)
 		currentInitPlacement = 1;
+	else if (modelNum == BOID_SH_2D || modelNum == BOID_SH_WAY1)
+		currentInitPlacement = 3;
 #endif
 	const SceneConfig* scene = findScene(modelNum);
 	if (scene == NULL)
@@ -513,7 +583,7 @@ const char* Simulation::getPlacementName() const {
 }
 
 void Simulation::createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color){
-	const float r = TEST_SETUP_RADIUS / 2;
+	const float r = TEST_SETUP_RADIUS;   // group start-spread radius (2x the old TEST_SETUP_RADIUS/2)
 	const float maxVel = simParams.maxVel;
 
 	switch(currentInitPlacement){
@@ -524,15 +594,32 @@ void Simulation::createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std:
 	{
 		const int n = (int)simParams.numBodies;
 		const int half = n / 2;
-		const Vec4 centre = clusterPos(.5f, .5f, .5f, 0.f);   // world centre (no jitter)
+		Vec4 centre = clusterPos(.5f, .5f, .5f, 0.f);   // world centre (no jitter)
+		float fx = .5f, fy = .5f, fz0 = .25f, fz1 = .75f;
+
+		// tunnel scene: the default 1/4 and 3/4 spheres overlap the wall, so start each
+		// group centred in the free space in front of / behind the wall, level with the
+		// openings, and aim the initial heading at the openings
+		const SceneConfig* sc = findScene(currentModel);
+		if (sc != NULL && sc->showTunnel && tunnel != NULL){
+			const float wx = CELL_SIZE_X * simParams.gridSize.x;
+			const float wy = CELL_SIZE_Y * simParams.gridSize.y;
+			const float wz = CELL_SIZE_Z * simParams.gridSize.z;
+			centre = tunnel->openingsCentre();
+			fx  = centre.x / wx;
+			fy  = centre.y / wy;
+			fz0 = 0.5f * tunnel->wallZMin() / wz;
+			fz1 = 0.5f * (tunnel->wallZMax() + wz) / wz;
+		}
+
 		for (int i = 0; i < half; i++)
 		{
 			const int j = i + half;
-			(*pos)[i] = clusterPos(.5f, .5f, .25f, r);
+			(*pos)[i] = clusterPos(fx, fy, fz0, r);
 			(*vel)[i] = dirTo((*pos)[i], centre, maxVel);   // group 0 heads to centre
 			(*color)[i] = COLOR_RED;
 
-			(*pos)[j] = clusterPos(.5f, .5f, .75f, r);
+			(*pos)[j] = clusterPos(fx, fy, fz1, r);
 			(*vel)[j] = dirTo((*pos)[j], centre, maxVel);   // group 1 heads to centre
 			(*color)[j] = COLOR_BLUE;
 
@@ -557,17 +644,18 @@ void Simulation::createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std:
 		}
 		break;
 	}
-	case 3:		//"four groups": converging at the centre, contiguous fourths (goals swapped)
+	case 3:		//"four groups": all four groups head toward the world centre, contiguous fourths
 	{
 		const int n = (int)simParams.numBodies;
 		const int q = n / 4;
+		const Vec4 centre = clusterPos(.5f, .5f, .5f, 0.f);
 		for (int i = 0; i < q; i++)
 		{
 			const int a = i, b = i + q, c = i + 2 * q, d = i + 3 * q;
-			(*pos)[a] = clusterPos(.5f, .5f, .25f, r); (*vel)[a] = Vec4(0.0f, 0.0f, randFloat(0.0f, maxVel), 0.0f);  (*color)[a] = COLOR_RED;
-			(*pos)[b] = clusterPos(.5f, .5f, .75f, r); (*vel)[b] = Vec4(0.0f, 0.0f, randFloat(-maxVel, 0.0f), 0.0f); (*color)[b] = COLOR_BLUE;
-			(*pos)[c] = clusterPos(.25f, .5f, .5f, r); (*vel)[c] = Vec4(randFloat(0.0f, maxVel), 0.0f, 0.0f, 0.0f);  (*color)[c] = COLOR_ORANGE;
-			(*pos)[d] = clusterPos(.75f, .5f, .5f, r); (*vel)[d] = Vec4(randFloat(-maxVel, 0.0f), 0.0f, 0.0f, 0.0f); (*color)[d] = COLOR_PURPLE;
+			(*pos)[a] = clusterPos(.5f, .5f, .25f, r); (*vel)[a] = dirTo((*pos)[a], centre, maxVel); (*color)[a] = COLOR_RED;
+			(*pos)[b] = clusterPos(.5f, .5f, .75f, r); (*vel)[b] = dirTo((*pos)[b], centre, maxVel); (*color)[b] = COLOR_BLUE;
+			(*pos)[c] = clusterPos(.25f, .5f, .5f, r); (*vel)[c] = dirTo((*pos)[c], centre, maxVel); (*color)[c] = COLOR_ORANGE;
+			(*pos)[d] = clusterPos(.75f, .5f, .5f, r); (*vel)[d] = dirTo((*pos)[d], centre, maxVel); (*color)[d] = COLOR_PURPLE;
 
 			(*goal)[a] = goalAt((*pos)[b]); (*goal)[b] = goalAt((*pos)[a]);
 			(*goal)[c] = goalAt((*pos)[d]); (*goal)[d] = goalAt((*pos)[c]);

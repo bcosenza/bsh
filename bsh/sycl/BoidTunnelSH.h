@@ -21,10 +21,11 @@
 class BoidTunnelSH : public BoidThreeColumnsSH
 {
 public:
-	// cor/start/end/posObst come from Tunnel::getObstacleForce.
+	// cor/start/end/posObst come from Tunnel::getObstacleForce; goal holds each
+	// boid's target on the far side of the wall (set by the two-groups placement).
 	BoidTunnelSH(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color, simParams_t* simP,
 	             std::vector<Vec4> cor, std::vector<unsigned int> start, std::vector<unsigned int> end,
-	             std::vector<Vec4> posObst);
+	             std::vector<Vec4> posObst, std::vector<Vec4> goal);
 	virtual ~BoidTunnelSH();
 };
 

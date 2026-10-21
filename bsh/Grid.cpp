@@ -97,6 +97,10 @@ Shader* Grid::getShader(){
 }
 
 Grid::~Grid(){
+	// the grid is rebuilt on every scene change, so release its GL objects
+	glDeleteBuffers(2, gridBufferObject);
+	glDeleteVertexArrays(1, gridAttributeObject);
+	delete shader;
 }
 
 void Grid::toggleVisibility(){

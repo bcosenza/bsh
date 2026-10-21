@@ -125,7 +125,10 @@ set(SYCL_SOURCES
     sycl/BoidModelSimpleSYCL.cpp
     sycl/BoidGridBase.cpp
     sycl/BoidGroupAvoidance.cpp
-    sycl/BoidGroupAvoidanceSH.cpp)
+    sycl/BoidGroupAvoidanceSH.cpp
+    sycl/Boid4GroupsAvoidanceSH.cpp
+    sycl/BoidThreeColumnsSH.cpp
+    sycl/BoidTunnelSH.cpp)
 
 # Copy the runtime assets a target opens by its own filename (textures, fonts)
 # next to its executable. cl/ and shaders/ stay at the repo root and are reached

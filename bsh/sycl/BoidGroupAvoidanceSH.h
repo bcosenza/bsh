@@ -52,17 +52,60 @@ protected:
 	// (shEval3 and SH_BAND0 are inherited from BoidModelSimpleSYCL.)
 	float* d_groupSH;
 
+	// SH step 1, entirely on the device: project every boid's heading (read from
+	// d_vel, original boid order) into its group's averaged SH coefficients in
+	// d_groupSH. Each work-group reduces its boids' contributions, then adds them
+	// to the group totals with one atomic per coefficient. Derived models call it
+	// at the start of their simulate().
+	void projectGroupSH();
+
+	// group of boid i: boids are split into ng contiguous index buckets
+	static int groupOf(int i, int n, int ng)
+	{
+		const int g = (int)(((long long)i * ng) / n);
+		return (g < ng) ? g : ng - 1;
+	}
+	// number of boids in group g (boids i with ceil(g*n/ng) <= i < ceil((g+1)*n/ng))
+	static int groupSize(int g, int n, int ng)
+	{
+		const long long lo = ((long long)g * n + ng - 1) / ng;
+		const long long hi = ((long long)(g + 1) * n + ng - 1) / ng;
+		return (int)(hi - lo);
+	}
+
+	// SH step 2 for one agent (device code): the summed steering reconstructed from
+	// every group except the agent's own.
+	static sf4 groupSHSteer(const sf4& v, int group, int ng, const float* groupSH, float strength)
+	{
+		sf4 s = sf4(0.0f);
+		for (int og = 0; og < ng; og++){
+			if (og == group) continue;
+			s += shAvoidanceSteer(v, groupSH + og * SH_COEFFS, strength);
+		}
+		return s;
+	}
+
+	// weight of the "keep right" tie-break in shAvoidanceSteer: when two flows meet
+	// exactly head-on there is no lateral component to steer away from, so each
+	// agent turns to its own right; the groups then pass on opposite sides.
+	static constexpr float SH_KEEP_RIGHT = 0.25f;
+
 	// Reconstruct the other group's SH field in the agent's heading direction and
-	// turn it into a steering vector (device code). otherSH points at that group's
-	// SH_COEFFS coefficients. The scalar 'val' is the reconstructed field value
-	// (how strongly the other group heads along the agent's direction); it scales a
-	// push along the other group's dominant heading (recovered from its band-1
-	// coefficients). Sign/strength of 'strength' select attraction vs avoidance.
+	// turn it into a sideways steering vector (device code). otherSH points at that
+	// group's SH_COEFFS coefficients.
+	//  - 'val' is the reconstructed field value: how strongly the other group heads
+	//    along the agent's direction (negative ringing is clamped to zero);
+	//  - the other group's dominant heading m is recovered from its band-1 coeffs;
+	//  - 'oncoming' = (1 - m.h)/2 is 1 for a head-on flow and 0 for one moving the
+	//    same way, so parallel groups do not push each other.
+	// The push is perpendicular to the agent's heading h: away from the lateral part
+	// of the other flow, plus a small keep-right bias for the head-on case. Pushing
+	// along m instead would make head-on groups reverse.
 	static sf4 shAvoidanceSteer(const sf4& v, const float* otherSH, float strength)
 	{
-		sf4 dir = safeNormalize(v);
+		const sf4 h = safeNormalize(v);
 		float b[8];
-		shEval3(dir.x(), dir.y(), dir.z(), b);
+		shEval3(h.x(), h.y(), h.z(), b);
 
 		float val = otherSH[0] * SH_BAND0;
 		for (int k = 0; k < 8; k++)
@@ -70,8 +113,15 @@ protected:
 
 		// dominant heading of the other group from its band-1 (l=1) coefficients:
 		// out[0]=-a*y, out[1]=a*z, out[2]=-a*x  =>  dir ~ (-c[3], -c[1], c[2])
-		sf4 meanDir = safeNormalize(sf4(-otherSH[3], -otherSH[1], otherSH[2], 0.0f));
-		return meanDir * (val * strength);
+		const sf4 m = safeNormalize(sf4(-otherSH[3], -otherSH[1], otherSH[2], 0.0f));
+
+		const float mh       = sycl::dot(m, h);
+		const float oncoming = 0.5f * (1.0f - mh);
+		const sf4   lateral  = m - h * mh;                       // other flow, across our heading
+		const sf4   right    = sf4(-h.z(), 0.0f, h.x(), 0.0f);   // h x up (up = +y)
+		const sf4   side     = safeNormalize(right * SH_KEEP_RIGHT - lateral);
+
+		return side * (strength * sycl::fmax(val, 0.0f) * oncoming);
 	}
 };
 

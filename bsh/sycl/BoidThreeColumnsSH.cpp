@@ -14,10 +14,19 @@
 BoidThreeColumnsSH::BoidThreeColumnsSH(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color, simParams_t* simP,
                                        std::vector<Vec4> cor, std::vector<unsigned int> start, std::vector<unsigned int> end,
                                        std::vector<Vec4> posObst)
-	: BoidGridBase(pos, vel, color, simP)
+	: BoidThreeColumnsSH(pos, vel, color, simP, cor, start, end, posObst, 4)   // four groups
+{
+}
+
+BoidThreeColumnsSH::BoidThreeColumnsSH(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color, simParams_t* simP,
+                                       std::vector<Vec4> cor, std::vector<unsigned int> start, std::vector<unsigned int> end,
+                                       std::vector<Vec4> posObst, int groups)
+	: BoidGroupAvoidanceSH(pos, vel, color, simP, groups)   // grid + per-group SH
 {
 	simTimeDisc[0] = "Three columns avoidance with SH";
 	obstStrength = 3.0f;
+	d_goal = nullptr;      // goal seeking off unless enableGoalSeeking() is called
+	pathWeight = 0.0f;
 	numObst = (int)posObst.size();
 
 	d_obstacleSH = sycl::malloc_device<float>((size_t)numObst * OBST_STRIDE, queue);
@@ -55,7 +64,15 @@ BoidThreeColumnsSH::~BoidThreeColumnsSH(){
 	queue.wait();
 	sycl::free(d_obstacleSH, queue);
 	sycl::free(d_posObst, queue);
-	// ~BoidGridBase / ~BoidModelSimpleSYCL free the rest
+	if (d_goal) sycl::free(d_goal, queue);
+	// ~BoidGroupAvoidanceSH frees the group SH; ~BoidGridBase / ~BoidModelSimpleSYCL the rest
+}
+
+void BoidThreeColumnsSH::enableGoalSeeking(const std::vector<Vec4>& goal, float weight){
+	if (d_goal == nullptr)
+		d_goal = sycl::malloc_device<sf4>(num, queue);
+	queue.memcpy(d_goal, goal.data(), (size_t)num * sizeof(Vec4)).wait();   // Vec4 == sf4 layout
+	pathWeight = weight;
 }
 
 void BoidThreeColumnsSH::simulate(float dt){
@@ -67,6 +84,9 @@ void BoidThreeColumnsSH::simulate(float dt){
 	const sf4   origin = gridOrigin;
 
 	auto t0 = std::chrono::high_resolution_clock::now();
+
+	// project each boid's heading into its group's SH basis (inherited, on-device)
+	projectGroupSH();
 
 	// build the uniform grid (inherited, on-device)
 	buildGrid();
@@ -82,6 +102,11 @@ void BoidThreeColumnsSH::simulate(float dt){
 	sf4*   posObst    = d_posObst;
 	const int   nObst  = numObst;
 	const float obstF  = obstStrength;
+	float*      groupSH    = d_groupSH;
+	const int   ng         = numGroups;
+	const float shStrength = shAvoidStrength;
+	const sf4*  goal       = d_goal;
+	const float wPath      = pathWeight;
 
 	queue.parallel_for(sycl::range<1>(n), [=](sycl::id<1> idx){
 		const int k = (int)idx[0];
@@ -106,10 +131,18 @@ void BoidThreeColumnsSH::simulate(float dt){
 			obst += reconstructObstacle(dir, obstacleSH + i * OBST_STRIDE) * (1.0f / dist2);
 		}
 
-		// combine local + obstacle steering, then integrate (shared dynamics)
-		advanceBoid(p, v, steer + obst * obstF, sp, dt);
-
+		// long-range avoidance of the other agent groups (one SH per group)
 		const int orig = (int)index[k];
+		const sf4 grp  = groupSHSteer(v, groupOf(orig, n, ng), ng, groupSH, shStrength);
+
+		// goal seeking (the OpenCL path term), only where a scene enables goals
+		sf4 path = sf4(0.0f);
+		if (wPath > 0.0f)
+			path = safeNormalize(goal[orig] - p) * wPath;
+
+		// combine local + group + goal + obstacle steering, then integrate (shared dynamics)
+		advanceBoid(p, v, steer + grp + path + obst * obstF, sp, dt);
+
 		outPos[orig] = p;
 		outVel[orig] = v;
 	});

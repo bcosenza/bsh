@@ -212,8 +212,12 @@ protected:
 	// minimum cruising speed, as a fraction of maxVel. Alignment pulls a boid's
 	// velocity toward its neighbours' average, which inside a settled cluster
 	// tends to ~0 and would otherwise let the flock freeze in place; this floor
-	// keeps boids milling. Kept above the max per-step steering nudge so velocity
-	// can never be driven through zero (which would lose the heading direction).
+	// keeps boids milling. With local flocking alone the steering nudge is at most
+	// (wCoh + wAli + wSep) * steerStrength = 3 < minSpeed, so the velocity cannot be
+	// driven through zero in one step. The long-range terms of the SH models (group
+	// and obstacle steering) can exceed that bound, so there a boid may briefly pass
+	// near zero speed; advanceBoid then skips the rescale (len <= 1e-6 guard) and the
+	// next step's steering restores a heading.
 	static constexpr float minSpeedFactor = 0.5f;
 
 	// pointer to description strings (will be used for simulation time)

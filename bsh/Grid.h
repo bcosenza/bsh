@@ -39,6 +39,7 @@ class Grid : public Renderable {
 
 		//make the grid visible/invisible
 		void toggleVisibility();
+		bool isVisible() const { return visibility; }
 };
 
 #endif

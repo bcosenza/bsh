@@ -12,12 +12,16 @@
 #include <chrono>
 
 BoidGroupAvoidanceSH::BoidGroupAvoidanceSH(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color, simParams_t* simP)
-	: BoidGroupAvoidance(pos, vel, color, simP)
+	: BoidGroupAvoidanceSH(pos, vel, color, simP, 2)   // two groups
 {
 	simTimeDisc[0] = "Two groups avoidance with SH";
+}
 
+BoidGroupAvoidanceSH::BoidGroupAvoidanceSH(std::vector<Vec4> pos, std::vector<Vec4> vel, std::vector<Vec4> color, simParams_t* simP, int groups)
+	: BoidGroupAvoidance(pos, vel, color, simP), numGroups(groups)
+{
 	// one order-3 SH coefficient set per group, stored on the device
-	d_groupSH = sycl::malloc_device<float>(2 * SH_COEFFS, queue);
+	d_groupSH = sycl::malloc_device<float>(numGroups * SH_COEFFS, queue);
 	queue.wait();
 }
 
@@ -27,9 +31,55 @@ BoidGroupAvoidanceSH::~BoidGroupAvoidanceSH(){
 	// ~BoidGridBase / ~BoidModelSimpleSYCL free the rest
 }
 
+void BoidGroupAvoidanceSH::projectGroupSH(){
+	const int  n  = num;
+	const int  ng = numGroups;
+	const sf4* vel     = d_vel;       // current state, original boid order
+	float*     groupSH = d_groupSH;
+
+	queue.fill(groupSH, 0.0f, (size_t)ng * SH_COEFFS);
+
+	const size_t WG     = 128;
+	const size_t global = ((size_t)n + WG - 1) / WG * WG;
+
+	queue.parallel_for(sycl::nd_range<1>(global, WG), [=](sycl::nd_item<1> it){
+		const int i = (int)it.get_global_id(0);
+
+		// this boid's contribution, pre-divided by its group size so the totals are
+		// group averages (keeps the reconstructed field ~O(1) whatever the size)
+		float c[SH_COEFFS];
+		for (int k = 0; k < SH_COEFFS; k++) c[k] = 0.0f;
+		int g = -1;                                  // padding items contribute nothing
+		if (i < n){
+			g = groupOf(i, n, ng);
+			const sf4 dir = safeNormalize(vel[i]);
+			float b[8];
+			shEval3(dir.x(), dir.y(), dir.z(), b);
+			const float inv = 1.0f / (float)groupSize(g, n, ng);
+			c[0] = SH_BAND0 * inv;
+			for (int k = 0; k < 8; k++) c[1 + k] = b[k] * inv;
+		}
+
+		// reduce within the work-group, then one atomic add per coefficient (a
+		// work-group may straddle a group boundary, hence the loop over groups)
+		const auto wg = it.get_group();
+		for (int gg = 0; gg < ng; gg++){
+			for (int k = 0; k < SH_COEFFS; k++){
+				const float s = sycl::reduce_over_group(wg, (g == gg) ? c[k] : 0.0f, sycl::plus<float>());
+				if (it.get_local_id(0) == 0 && s != 0.0f){
+					sycl::atomic_ref<float, sycl::memory_order::relaxed, sycl::memory_scope::device,
+					                 sycl::access::address_space::global_space> total(groupSH[gg * SH_COEFFS + k]);
+					total.fetch_add(s);
+				}
+			}
+		}
+	});
+	// no wait: the in-order queue runs the grid build / interaction after this
+}
+
 void BoidGroupAvoidanceSH::simulate(float dt){
 	const int         n    = num;
-	const int         half = n / 2;                 // group 0 = [0,half), group 1 = [half,n)
+	const int         ng   = numGroups;             // boids split into ng contiguous index buckets
 	const simParams_t sp   = simParams;
 
 	const float cs   = cellSize;
@@ -38,35 +88,8 @@ void BoidGroupAvoidanceSH::simulate(float dt){
 
 	auto t0 = std::chrono::high_resolution_clock::now();
 
-	// --- SH step 1: project each boid's heading into its group's SH basis ---
-	// d_vel is in original boid order (index i => group i<half), so this is a
-	// trivial two-bucket reduction. Done on the host for simplicity (only two
-	// groups); the averaged coefficients are then uploaded to the device.
-	queue.memcpy(hostBuf.data(), d_vel, (size_t)n * sizeof(Vec4)).wait();
-
-	float sh[2 * SH_COEFFS];
-	for (int k = 0; k < 2 * SH_COEFFS; k++) sh[k] = 0.0f;
-	const int count[2] = { half, n - half };
-
-	for (int i = 0; i < n; i++){
-		const int g = (i < half) ? 0 : 1;
-		float x = hostBuf[i].x, y = hostBuf[i].y, z = hostBuf[i].z;
-		float len = sqrtf(x * x + y * y + z * z);
-		if (len > 1e-6f){ x /= len; y /= len; z /= len; } else { x = y = z = 0.0f; }
-
-		float b[8];
-		shEval3(x, y, z, b);
-		float* c = sh + g * SH_COEFFS;
-		c[0] += SH_BAND0;
-		for (int k = 0; k < 8; k++) c[1 + k] += b[k];
-	}
-	// average per group so the reconstructed field is ~O(1) regardless of size
-	for (int g = 0; g < 2; g++)
-		if (count[g] > 0)
-			for (int k = 0; k < SH_COEFFS; k++)
-				sh[g * SH_COEFFS + k] /= (float)count[g];
-
-	queue.memcpy(d_groupSH, sh, sizeof(sh)).wait();
+	// --- SH step 1: project each boid's heading into its group's SH basis (device) ---
+	projectGroupSH();
 
 	// --- build the uniform grid (inherited, on-device) ---
 	buildGrid();
@@ -80,7 +103,7 @@ void BoidGroupAvoidanceSH::simulate(float dt){
 	int* cellEnd   = d_cellEnd;
 	unsigned int* index = d_index;
 	float* groupSH = d_groupSH;
-	const int   halfLocal  = half;
+	const int   ngLocal    = ng;
 	const float shStrength = shAvoidStrength;
 
 	queue.parallel_for(sycl::range<1>(n), [=](sycl::id<1> idx){
@@ -93,12 +116,10 @@ void BoidGroupAvoidanceSH::simulate(float dt){
 		                                cellStart, cellEnd, cs, dimX, dimY, dimZ, origin);
 		sf4 steer = finalizeSteer(acc, p, v, sp);
 
-		// SH step 2: evaluate the OTHER group's SH field in this agent's direction
-		// and reconstruct a velocity contribution
+		// SH step 2: evaluate every OTHER group's SH field in this agent's direction
+		// and reconstruct a summed velocity contribution
 		const int orig  = (int)index[k];
-		const int group = (orig < halfLocal) ? 0 : 1;
-		const float* otherSH = groupSH + (1 - group) * SH_COEFFS;
-		sf4 shSteer = shAvoidanceSteer(v, otherSH, shStrength);
+		const sf4 shSteer = groupSHSteer(v, groupOf(orig, n, ngLocal), ngLocal, groupSH, shStrength);
 
 		// combine local + SH steering, then integrate (shared dynamics)
 		advanceBoid(p, v, steer + shSteer, sp, dt);

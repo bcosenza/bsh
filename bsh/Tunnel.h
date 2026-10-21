@@ -73,6 +73,14 @@ public:
 	//(10 segments with 18 corners per width cell, plus the 9x9 wall minus the two openings)
 	unsigned int obstacleSegmentCount() const { return 10 * width + 2 * (9 * 9 - 2); }
 	unsigned int obstacleCornerCount() const { return 18 * width + 4 * (9 * 9 - 2); }
+
+	//wall extent along z (the wall normal) and the centre of the region spanned by the
+	//two openings (x/y) at the wall's mid-depth (z); used to place agents around it
+	float wallZMin() const { return zMin; }
+	float wallZMax() const { return zMax; }
+	Vec4 openingsCentre() const {
+		return Vec4((xTunnel1 + xTunnel4) * 0.5f, (yTunnel1 + yTunnel2) * 0.5f, (zMin + zMax) * 0.5f, 1.0f);
+	}
 };
 
 #endif

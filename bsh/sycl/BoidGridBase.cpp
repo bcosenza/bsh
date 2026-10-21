@@ -133,7 +133,7 @@ void BoidGridBase::simulate(float dt){
 	int* cellEnd   = d_cellEnd;
 	unsigned int* index = d_index;   // sorted position k -> original boid index
 
-	// step 5: pairwise interaction, but only over the 27 neighbouring cells
+	// step 5: pairwise interaction, on particles in the 27 neighbouring cells
 	queue.parallel_for(sycl::range<1>(n), [=](sycl::id<1> idx){
 		const int k = (int)idx[0];
 		sf4 p = sortedPos[k];
