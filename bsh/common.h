@@ -14,8 +14,6 @@
 #include "linux_compat.h"
 #endif
 
-#define __CL_ENABLE_EXCEPTIONS
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -31,9 +29,18 @@
 #include <GL/freeglut.h>
 
 //OpenCL include (skipped for the SYCL build, which has no OpenCL dependency)
+//The legacy <CL/cl.hpp> is no longer shipped by OpenCL SDKs, so include the modern
+//C++ bindings <CL/opencl.hpp> directly, configured to match: exceptions on, OpenCL 1.2
 #ifndef USE_SYCL
 #define CL_USE_DEPRECATED_OPENCL_2_0_APIS
-#include <CL/cl.hpp>
+#define CL_HPP_ENABLE_EXCEPTIONS
+#ifndef CL_HPP_TARGET_OPENCL_VERSION
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#endif
+#ifndef CL_HPP_MINIMUM_OPENCL_VERSION
+#define CL_HPP_MINIMUM_OPENCL_VERSION 100
+#endif
+#include <CL/opencl.hpp>
 #endif
 
 //OpenGL matrix/vector manipulation header lib

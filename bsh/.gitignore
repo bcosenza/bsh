@@ -1,0 +1,8 @@
+# CMake build tree (also holds the executable, copied assets, and runtime logs)
+/build/
+
+# Runtime logs (when run from elsewhere)
+/logs/
+
+# Claude Code local settings
+/.claude/

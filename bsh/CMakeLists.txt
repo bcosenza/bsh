@@ -146,8 +146,7 @@ endfunction()
 if(BUILD_OPENCL)
     add_executable(boidSim ${SHARED_SOURCES} ${OPENCL_SOURCES})
 
-    # project headers, plus compat/ for the CL/cl.hpp shim that redirects the
-    # removed deprecated cl.hpp to the modern opencl.hpp (used on both platforms)
+    # project headers, plus compat/ for linux_compat.h (Windows-isms on Linux)
     target_include_directories(boidSim PRIVATE
         ${CMAKE_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/cl
@@ -189,7 +188,7 @@ if(BUILD_SYCL)
     target_link_options   (boidSimSYCL PRIVATE -fsycl)
     target_compile_definitions(boidSimSYCL PRIVATE USE_SYCL)
 
-    # No OpenCL: USE_SYCL drops the <CL/cl.hpp> include and the CLHelper coupling.
+    # No OpenCL: USE_SYCL drops the <CL/opencl.hpp> include and the CLHelper coupling.
     target_include_directories(boidSimSYCL PRIVATE
         ${CMAKE_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/sycl
