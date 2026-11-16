@@ -54,10 +54,20 @@ protected:
 
 	// SH step 1, entirely on the device: project every boid's heading (read from
 	// d_vel, original boid order) into its group's averaged SH coefficients in
-	// d_groupSH. Each work-group reduces its boids' contributions, then adds them
-	// to the group totals with one atomic per coefficient. Derived models call it
-	// at the start of their simulate().
+	// d_groupSH, with the projection kernel selected by shMode (Dirac or vMF).
+	// Each work-group reduces its boids' contributions, then adds them to the
+	// group totals with one atomic per coefficient. Derived models call it at the
+	// start of their simulate().
 	void projectGroupSH();
+	// the projection kernel for one policy P (SHDirac / SHVonMisesFisher)
+	template <class P> void projectGroupSHImpl(const P& policy);
+
+public:
+	// "SH: Dirac" or "SH: vMF (k=...)", for the overlay
+	const char* getSHProjectionName();
+
+protected:
+	std::string shProjectionName;
 
 	// group of boid i: boids are split into ng contiguous index buckets
 	static int groupOf(int i, int n, int ng)

@@ -57,8 +57,28 @@ protected:
 	static constexpr int OBST_STRIDE = 27;
 
 	int   numObst;        // number of obstacle points
-	float* d_obstacleSH;  // numObst * OBST_STRIDE, projected once at construction
+	// obstacle SH, numObst * OBST_STRIDE each, one set per projection kernel. The
+	// geometry is static, so both are projected at construction; the vMF set is
+	// re-projected when k changes (setSHProjection). The kernel picks one by shMode.
+	float* d_obstacleSH;      // Dirac projection
+	float* d_obstacleSHvmf;   // von Mises-Fisher projection, concentration vmfProjectedK
+	float  vmfProjectedK;
 	sf4*   d_posObst;     // world-space anchor of each obstacle point
+
+	// host copy of the obstacle repulsion vectors (Column/Tunnel::getObstacleForce
+	// layout), kept for re-projection
+	std::vector<Vec4> obstCor;
+	std::vector<unsigned int> obstStart, obstEnd;
+
+	// project every obstacle point's repulsion vectors with policy P (host code)
+	// and upload the coefficients into dst
+	template <class P> void projectObstacles(const P& policy, float* dst);
+
+public:
+	// also re-projects the vMF obstacle set if k changed
+	void setSHProjection(int mode, float k);
+
+protected:
 
 	// optional goal seeking (the OpenCL path term): each boid steers toward its own
 	// goal with weight pathWeight. Off (no goals, weight 0) unless a derived scene
@@ -69,26 +89,25 @@ protected:
 
 	// Reconstruct the vector-valued obstacle SH field at unit direction dir (from
 	// the obstacle point toward the boid). c points at that point's OBST_STRIDE
-	// coefficients. Uses the standard SH product band weights (l=1 -> 2pi/3,
-	// l=2 -> pi/4, band 0 constant). Returns the (un-attenuated) repulsion vector.
+	// coefficients. Any smoothing is already in the coefficients (it is the
+	// projection kernel's job), so this is the plain basis dot product, times a
+	// fixed pi: that scale is the band-0 weight of the clamped-cosine convolution
+	// the reconstruction used before, kept so obstStrength keeps its tuning.
+	// Returns the (un-attenuated) repulsion vector.
 	static sf4 reconstructObstacle(const sf4& dir, const float* c)
 	{
 		float b[8];
 		shEval3(dir.x(), dir.y(), dir.z(), b);
 
-		const float w1 = (float)M_PI * (2.0f / 3.0f);   // l = 1
-		const float w2 = (float)M_PI * (1.0f / 4.0f);   // l = 2
-
-		float sx = c[24] * SH_BAND0 * (float)M_PI;
-		float sy = c[25] * SH_BAND0 * (float)M_PI;
-		float sz = c[26] * SH_BAND0 * (float)M_PI;
+		float sx = c[24] * SH_BAND0;
+		float sy = c[25] * SH_BAND0;
+		float sz = c[26] * SH_BAND0;
 		for (int k = 0; k < 8; k++){
-			const float w = (k < 3) ? w1 : w2;
-			sx += b[k] * c[0  + k] * w;
-			sy += b[k] * c[8  + k] * w;
-			sz += b[k] * c[16 + k] * w;
+			sx += b[k] * c[0  + k];
+			sy += b[k] * c[8  + k];
+			sz += b[k] * c[16 + k];
 		}
-		return sf4(sx, sy, sz, 0.0f);
+		return sf4(sx, sy, sz, 0.0f) * (float)M_PI;
 	}
 };
 

@@ -223,7 +223,11 @@ void GFX::keyboardHandler(unsigned char key, int x, int y){
 	case 'g':	//
 	case 'G':
 	case 's':	//make skybox invisible/visible
-	case 'S':	
+	case 'S':
+	case 'p':	//switch SH projection kernel (Dirac / von Mises-Fisher)
+	case 'P':
+	case '[':	//halve / double the vMF concentration k
+	case ']':
 		Simulation::getInstance().keyPress(key); //handled by controller
 		break;
 	case '+':	//increase boids

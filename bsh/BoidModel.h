@@ -39,6 +39,18 @@ typedef struct simParams_t{
 } simParams_t;
 
 /*
+	Duration of the phases of the last simulate() call, in microseconds. GPU phases
+	come from device profiling events; upload is the host-side device->GL copy.
+	A phase a model does not have stays 0.
+*/
+struct PhaseTimes {
+	double projectUs  = 0.0;	// SH projection (group SH)
+	double gridUs     = 0.0;	// uniform-grid build (hash, sort, ranges, reorder)
+	double interactUs = 0.0;	// interaction + integration kernel
+	double uploadUs   = 0.0;	// device -> host -> GL VBO upload
+};
+
+/*
 	Virtual base class for boids, implements interface Renderable.
 */
 class BoidModel : public Renderable
@@ -72,6 +84,19 @@ public:
 
 	/* Get position data of a specific Boid, boidIndex passed in may be changed to new Index after reordering */
 	virtual void getFollowedBoid(unsigned int* boidIndex, Vec4 *pos, Vec4 *vel) = 0;
+
+	/* SH projection kernel (SH_PROJECTION_*) and vMF concentration k. Models without
+	SH ignore it and report an empty name. */
+	virtual void setSHProjection(int mode, float k) {}
+	virtual int getSHProjection() { return SH_PROJECTION_DIRAC; }
+	virtual const char* getSHProjectionName() { return ""; }
+
+	/* Phase durations of the last simulate() call (zero if not measured) */
+	virtual PhaseTimes getPhaseTimes() { return PhaseTimes(); }
+
+	/* Hook for the accuracy study: compare the SH steering of the current state
+	against a brute-force reference. Not implemented yet; meant for specific scenes. */
+	virtual void evaluateAgainstReference() {}
 
 protected:
 	BoidModel() {};

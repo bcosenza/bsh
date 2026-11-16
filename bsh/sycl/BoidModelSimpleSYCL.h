@@ -11,6 +11,7 @@
 #include "common.h"
 #include "BoidModelSimpleView.h"
 #include "vectorTypes.h"
+#include "SHProjection.h"
 #include <sycl/sycl.hpp>
 
 // distinct alias: vector_types.h already defines an (operator-less) float4
@@ -31,6 +32,12 @@ public:
 	void simulate(float dt);
 	long getSimulationTime();
 	std::vector<const char*> getSimTimeDescriptions();
+
+	// SH projection selection (stored here so every SH model shares it; models
+	// without SH just carry it) and per-phase timing of the last step
+	void setSHProjection(int mode, float k);
+	int getSHProjection() { return (int)shMode; }
+	PhaseTimes getPhaseTimes() { return phaseTimes; }
 
 protected:
 	// neighbourhood bounding-box factor (matches boidModelSimple_kernel_v2.cl):
@@ -69,6 +76,20 @@ protected:
 		const float fTmpC = 0.5462742152960395f;
 		out[7] = fTmpC * fC1;
 		out[3] = fTmpC * fS1;
+	}
+
+	// Project unit direction dir, with weight w, into the 9 order-3 SH coefficients
+	// c (c[0] is band 0) using projection policy P (SHDirac or SHVonMisesFisher, see
+	// SHProjection.h). Host and device code; the projection kernels are templated on
+	// P, so each policy compiles to its own kernel with no runtime branch inside.
+	template <class P>
+	static void shProject(float x, float y, float z, float w, const P& policy, float c[9])
+	{
+		float b[8];
+		shEval3(x, y, z, b);
+		c[0] = SH_BAND0 * w;
+		for (int k = 0; k < 8; k++) c[1 + k] = b[k] * w;
+		policy.apply(c);
 	}
 
 	// Repulsive world boundary (device code, shared by SYCL boid models).
@@ -227,10 +248,32 @@ protected:
 	// last measured step time in milliseconds
 	long lastSimTimeMs;
 
+	// SH projection kernel and vMF concentration k (used by the SH models only)
+	SHMode shMode;
+	float  vmfK;
+	SHVonMisesFisher vmfPolicy() const { return SHVonMisesFisher::fromConcentration(vmfK); }
+
+	// --- per-phase timing from device profiling events ---
+	// first/last device command of a phase; the phase lasts from the start of the
+	// first to the end of the last (the queue is in-order, so nothing interleaves)
+	struct PhaseEvents {
+		sycl::event first, last;
+		bool valid = false;
+		void set(const sycl::event& f, const sycl::event& l){ first = f; last = l; valid = true; }
+	};
+	PhaseEvents evProject, evGrid, evInteract;
+	PhaseTimes  phaseTimes;
+	// clear the events at the start of a step
+	void resetPhaseEvents(){ evProject.valid = evGrid.valid = evInteract.valid = false; }
+	// read the GPU phase durations into phaseTimes (call after the queue has drained)
+	void collectPhaseTimes();
+
 	// boid state is stored as sycl::float4 in device memory. The queue is in-order
 	// so multi-kernel pipelines (e.g. the grid build) serialize without explicit
-	// event chaining -- USM allocations carry no automatic dependencies.
-	sycl::queue queue{sycl::property::queue::in_order()};
+	// event chaining -- USM allocations carry no automatic dependencies. Profiling
+	// is enabled for the per-phase timing.
+	sycl::queue queue{sycl::property_list{sycl::property::queue::in_order(),
+	                                      sycl::property::queue::enable_profiling()}};
 	sycl::float4* d_pos;
 	sycl::float4* d_pos_out;
 	sycl::float4* d_vel;
@@ -242,6 +285,9 @@ protected:
 	// copy one device state buffer (num float4s) into hostBuf and upload it into
 	// the given GL VBO for rendering. Blocks on the copy before the upload.
 	void uploadToVBO(sycl::float4* deviceBuf, GLuint vbo);
+	// upload the new position and velocity state into the ping-pong VBOs rendered
+	// this frame, timing it into phaseTimes.uploadUs
+	void uploadState(sycl::float4* posBuf, sycl::float4* velBuf, bool pingPong);
 };
 
 #endif // _BOIDMODELSIMPLESYCL_H_

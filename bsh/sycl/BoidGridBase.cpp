@@ -71,7 +71,7 @@ void BoidGridBase::buildGrid(){
 	int*          cellEnd   = d_cellEnd;
 
 	// steps 1-2: cell hash + identity index for every boid (device)
-	queue.parallel_for(sycl::range<1>(n), [=](sycl::id<1> idx){
+	sycl::event evFirst = queue.parallel_for(sycl::range<1>(n), [=](sycl::id<1> idx){
 		int i = (int)idx[0];
 		sf4 p = pos[i];
 		int gx = gridCoord(p.x(), origin.x(), cs, dimX);
@@ -102,12 +102,14 @@ void BoidGridBase::buildGrid(){
 	// step 4b: reorder position/velocity into d_pos_out/d_vel_out (sorted order)
 	sf4* src  = d_pos;   sf4* dst  = d_pos_out;
 	sf4* srcV = d_vel;   sf4* dstV = d_vel_out;
-	queue.parallel_for(sycl::range<1>(n), [=](sycl::id<1> idx){
+	sycl::event evLast = queue.parallel_for(sycl::range<1>(n), [=](sycl::id<1> idx){
 		int k = (int)idx[0];
 		int i = (int)index[k];
 		dst[k]  = src[i];
 		dstV[k] = srcV[i];
 	});
+	// the grid phase spans hash kernel start .. reorder kernel end (sort included)
+	evGrid.set(evFirst, evLast);
 	queue.wait();
 }
 
@@ -121,6 +123,7 @@ void BoidGridBase::simulate(float dt){
 	const sf4   origin = gridOrigin;
 
 	auto t0 = std::chrono::high_resolution_clock::now();
+	resetPhaseEvents();
 
 	// steps 1-4: hash, sort, cell ranges, reorder -> sorted state in d_pos_out/d_vel_out
 	buildGrid();
@@ -134,7 +137,7 @@ void BoidGridBase::simulate(float dt){
 	unsigned int* index = d_index;   // sorted position k -> original boid index
 
 	// step 5: pairwise interaction, on particles in the 27 neighbouring cells
-	queue.parallel_for(sycl::range<1>(n), [=](sycl::id<1> idx){
+	sycl::event ev = queue.parallel_for(sycl::range<1>(n), [=](sycl::id<1> idx){
 		const int k = (int)idx[0];
 		sf4 p = sortedPos[k];
 		sf4 v = sortedVel[k];
@@ -153,15 +156,15 @@ void BoidGridBase::simulate(float dt){
 		outPos[orig] = p;
 		outVel[orig] = v;
 	});
+	evInteract.set(ev, ev);
 	queue.wait();
+	collectPhaseTimes();
 
 	auto t1 = std::chrono::high_resolution_clock::now();
 	lastSimTimeMs = (long)std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 
 	// step 6: draw -- upload the new state into the ping-pong VBO the base's
-	// getPosVAO() renders this frame (reuses the base's uploadToVBO)
+	// getPosVAO() renders this frame
 	bool pingPong = ((helper++ % 2) == 0);
-	uploadToVBO(outPos, pingPong ? pos_out_vbo[0] : pos_vbo[0]);
-	uploadToVBO(outVel, pingPong ? vel_out_vbo[0] : vel_vbo[0]);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	uploadState(outPos, outVel, pingPong);
 }

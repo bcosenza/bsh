@@ -197,6 +197,20 @@
 #define MODEL_INIT_PLACEMENT 0
 #define MODEL_INIT_PLACEMENT_MAX 5
 
+//SH projection kernel used by the SYCL SH models (switch at runtime with 'p')
+//0 - Dirac (exact point projection)
+//1 - von Mises-Fisher smoothed zonal projection with concentration SH_VMF_KAPPA
+#define SH_PROJECTION_DIRAC 0
+#define SH_PROJECTION_VMF 1
+#define SH_PROJECTION_DEFAULT SH_PROJECTION_DIRAC
+//default vMF concentration k: 2.95 gives band factors a1 = 2/3, a2 = 0.32, close to
+//the clamped-cosine weights (2/3, 1/4) the obstacle reconstruction used before
+#define SH_VMF_KAPPA 2.95f
+
+//timing mode (-timing t): fixed time step, and steps run before measuring
+#define TIMING_FIXED_DT (1.0f / 60.0f)
+#define TIMING_WARMUP_STEPS 10
+
 //GFX Camera preset positions
 //0 - standard Camera Position
 //1 - Camera Position for SH

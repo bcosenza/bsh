@@ -267,7 +267,7 @@ void OverlayText::createText(){
 	textSimple[0] = "F1 to toggle help";
 	textSimple[1] = "F2 to toggle measurements";
 
-	textExtended = std::vector<const char*>(13);
+	textExtended = std::vector<const char*>(15);
 	textExtended[0] = "Switch Boid Model:       ";
 	textExtended[1] = "      Boid Model Simple     [1]";
 	textExtended[2] = "      Boid Model Grid          [2]";
@@ -281,8 +281,10 @@ void OverlayText::createText(){
 	textExtended[10] = "Follow random boid             [F]";
 	textExtended[11] = "Switch camera                 [TAB]";
 	textExtended[12] = "Reset camera                       [C]";
+	textExtended[13] = "SH projection Dirac/vMF   [P]";
+	textExtended[14] = "vMF concentration k /2, x2  [ [ ] ]";
 
-	textExtended2 = std::vector<const char*>(11);
+	textExtended2 = std::vector<const char*>(12);
 	textExtended2[0] = "";
 	textExtended2[1] = "Boid Model Way1            [6]";
 	textExtended2[2] = "Boid Model Way2            [7]";
@@ -293,7 +295,8 @@ void OverlayText::createText(){
 	textExtended2[7] = "World ground visibility [G]";
 	textExtended2[8] = "World box visibility       [V]";
 	textExtended2[9] = "Sky box visibility           [S]";
-	textExtended2[10] = "Quit                       [ESC/Q]";
+	textExtended2[10] = "Acceleration grid visibility [L]";
+	textExtended2[11] = "Quit                       [ESC/Q]";
 }
 
 void OverlayText::renderText(std::vector<const char*> textVector, float xBegin, float yBegin, float sx, float sy){
@@ -377,6 +380,9 @@ void OverlayText::render(){
 	strstream.str(std::string());
 	strstream << "Scene " << Simulation::getInstance().getSceneName()
 	          << " - " << Simulation::getInstance().getPlacementName();
+	const char* shName = Simulation::getInstance().getSHProjectionName();
+	if (shName[0] != '\0')
+		strstream << " - " << shName;
 	const std::string sceneString = strstream.str();
 	textSimple[1] = sceneString.c_str();
 

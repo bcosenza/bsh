@@ -31,33 +31,45 @@ BoidGroupAvoidanceSH::~BoidGroupAvoidanceSH(){
 	// ~BoidGridBase / ~BoidModelSimpleSYCL free the rest
 }
 
+const char* BoidGroupAvoidanceSH::getSHProjectionName(){
+	std::stringstream s;
+	if (shMode == SHMode::VMF) s << "SH: vMF (k=" << vmfK << ")";
+	else                       s << "SH: Dirac";
+	shProjectionName = s.str();
+	return shProjectionName.c_str();
+}
+
 void BoidGroupAvoidanceSH::projectGroupSH(){
+	if (shMode == SHMode::VMF) projectGroupSHImpl(vmfPolicy());
+	else                       projectGroupSHImpl(SHDirac());
+}
+
+template <class P>
+void BoidGroupAvoidanceSH::projectGroupSHImpl(const P& policy){
 	const int  n  = num;
 	const int  ng = numGroups;
 	const sf4* vel     = d_vel;       // current state, original boid order
 	float*     groupSH = d_groupSH;
 
-	queue.fill(groupSH, 0.0f, (size_t)ng * SH_COEFFS);
+	sycl::event evFirst = queue.fill(groupSH, 0.0f, (size_t)ng * SH_COEFFS);
 
 	const size_t WG     = 128;
 	const size_t global = ((size_t)n + WG - 1) / WG * WG;
 
-	queue.parallel_for(sycl::nd_range<1>(global, WG), [=](sycl::nd_item<1> it){
+	sycl::event evLast = queue.parallel_for(sycl::nd_range<1>(global, WG), [=](sycl::nd_item<1> it){
 		const int i = (int)it.get_global_id(0);
 
 		// this boid's contribution, pre-divided by its group size so the totals are
-		// group averages (keeps the reconstructed field ~O(1) whatever the size)
+		// group averages (keeps the reconstructed field ~O(1) whatever the size).
+		// The policy scales the bands per boid; it is linear, so this equals
+		// smoothing the group average.
 		float c[SH_COEFFS];
 		for (int k = 0; k < SH_COEFFS; k++) c[k] = 0.0f;
 		int g = -1;                                  // padding items contribute nothing
 		if (i < n){
 			g = groupOf(i, n, ng);
 			const sf4 dir = safeNormalize(vel[i]);
-			float b[8];
-			shEval3(dir.x(), dir.y(), dir.z(), b);
-			const float inv = 1.0f / (float)groupSize(g, n, ng);
-			c[0] = SH_BAND0 * inv;
-			for (int k = 0; k < 8; k++) c[1 + k] = b[k] * inv;
+			shProject(dir.x(), dir.y(), dir.z(), 1.0f / (float)groupSize(g, n, ng), policy, c);
 		}
 
 		// reduce within the work-group, then one atomic add per coefficient (a
@@ -74,6 +86,7 @@ void BoidGroupAvoidanceSH::projectGroupSH(){
 			}
 		}
 	});
+	evProject.set(evFirst, evLast);
 	// no wait: the in-order queue runs the grid build / interaction after this
 }
 
@@ -87,6 +100,7 @@ void BoidGroupAvoidanceSH::simulate(float dt){
 	const sf4   origin = gridOrigin;
 
 	auto t0 = std::chrono::high_resolution_clock::now();
+	resetPhaseEvents();
 
 	// --- SH step 1: project each boid's heading into its group's SH basis (device) ---
 	projectGroupSH();
@@ -106,7 +120,7 @@ void BoidGroupAvoidanceSH::simulate(float dt){
 	const int   ngLocal    = ng;
 	const float shStrength = shAvoidStrength;
 
-	queue.parallel_for(sycl::range<1>(n), [=](sycl::id<1> idx){
+	sycl::event ev = queue.parallel_for(sycl::range<1>(n), [=](sycl::id<1> idx){
 		const int k = (int)idx[0];
 		sf4 p = sortedPos[k];
 		sf4 v = sortedVel[k];
@@ -127,14 +141,14 @@ void BoidGroupAvoidanceSH::simulate(float dt){
 		outPos[orig] = p;
 		outVel[orig] = v;
 	});
+	evInteract.set(ev, ev);
 	queue.wait();
+	collectPhaseTimes();
 
 	auto t1 = std::chrono::high_resolution_clock::now();
 	lastSimTimeMs = (long)std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 
 	// draw: upload into the ping-pong VBO the base's getPosVAO() renders this frame
 	bool pingPong = ((helper++ % 2) == 0);
-	uploadToVBO(outPos, pingPong ? pos_out_vbo[0] : pos_vbo[0]);
-	uploadToVBO(outVel, pingPong ? vel_out_vbo[0] : vel_vbo[0]);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	uploadState(outPos, outVel, pingPong);
 }

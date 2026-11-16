@@ -39,6 +39,9 @@ BoidModelSimpleSYCL::BoidModelSimpleSYCL(std::vector<Vec4> pos, std::vector<Vec4
 	lastSimTimeMs = 0;
 	hostBuf.resize(num);
 
+	shMode = (SHMode)SH_PROJECTION_DEFAULT;
+	vmfK   = SH_VMF_KAPPA;
+
 	createVboBindShader(pos, vel, color);
 
 	//make sure OpenGL is finished before we proceed
@@ -80,8 +83,9 @@ void BoidModelSimpleSYCL::simulate(float dt){
 	sf4* velOut = pingPong ? d_vel_out : d_vel;
 
 	auto t0 = std::chrono::high_resolution_clock::now();
+	resetPhaseEvents();
 
-	queue.parallel_for(sycl::range<1>(n), [=](sycl::id<1> idx){
+	sycl::event ev = queue.parallel_for(sycl::range<1>(n), [=](sycl::id<1> idx){
 		const int id = (int)idx[0];
 
 		sf4 p = posIn[id];
@@ -95,16 +99,43 @@ void BoidModelSimpleSYCL::simulate(float dt){
 		posOut[id] = p;
 		velOut[id] = v;
 	});
+	evInteract.set(ev, ev);
 	queue.wait();
+	collectPhaseTimes();
 
 	auto t1 = std::chrono::high_resolution_clock::now();
 	lastSimTimeMs = (long)std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 
 	// copy the freshly computed state back into the GL VBOs that getPosVAO()
 	// will render this frame
-	uploadToVBO(posOut, pingPong ? pos_out_vbo[0] : pos_vbo[0]);
-	uploadToVBO(velOut, pingPong ? vel_out_vbo[0] : vel_vbo[0]);
+	uploadState(posOut, velOut, pingPong);
+}
+
+void BoidModelSimpleSYCL::setSHProjection(int mode, float k){
+	shMode = (mode == SH_PROJECTION_VMF) ? SHMode::VMF : SHMode::Dirac;
+	if (k > 0.0f) vmfK = k;
+}
+
+// duration in microseconds from the start of 'first' to the end of 'last'
+static double eventSpanUs(const sycl::event& first, const sycl::event& last){
+	const auto t0 = first.get_profiling_info<sycl::info::event_profiling::command_start>();
+	const auto t1 = last.get_profiling_info<sycl::info::event_profiling::command_end>();
+	return (t1 > t0) ? (double)(t1 - t0) * 1e-3 : 0.0;
+}
+
+void BoidModelSimpleSYCL::collectPhaseTimes(){
+	phaseTimes.projectUs  = evProject.valid  ? eventSpanUs(evProject.first,  evProject.last)  : 0.0;
+	phaseTimes.gridUs     = evGrid.valid     ? eventSpanUs(evGrid.first,     evGrid.last)     : 0.0;
+	phaseTimes.interactUs = evInteract.valid ? eventSpanUs(evInteract.first, evInteract.last) : 0.0;
+}
+
+void BoidModelSimpleSYCL::uploadState(sf4* posBuf, sf4* velBuf, bool pingPong){
+	auto t0 = std::chrono::high_resolution_clock::now();
+	uploadToVBO(posBuf, pingPong ? pos_out_vbo[0] : pos_vbo[0]);
+	uploadToVBO(velBuf, pingPong ? vel_out_vbo[0] : vel_vbo[0]);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	auto t1 = std::chrono::high_resolution_clock::now();
+	phaseTimes.uploadUs = std::chrono::duration<double, std::micro>(t1 - t0).count();
 }
 
 void BoidModelSimpleSYCL::uploadToVBO(sf4* deviceBuf, GLuint vbo){

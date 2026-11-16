@@ -24,6 +24,17 @@
 #include "SkyBox.h"
 #include "Column.h"
 #include "Tunnel.h"
+#include <chrono>
+
+/*
+	Command-line options (see main_linux.cpp)
+*/
+struct RunOptions {
+	int   model       = BOID_SIMPLE;			// scene to start in
+	int   timingSteps = 0;						// >0: measure that many steps, report, quit
+	int   shMode      = SH_PROJECTION_DEFAULT;	// SH projection kernel (SH_PROJECTION_*)
+	float vmfK        = SH_VMF_KAPPA;			// vMF concentration k
+};
 
 /*
 	Boid simulation controler. Handles interaction between view and model.
@@ -78,6 +89,29 @@ private:
 	//name of the current scene, shown in the overlay
 	const char* currentSceneName;
 
+	//SH projection kernel and vMF concentration, kept across restarts and scene switches
+	int shMode;
+	float vmfK;
+	//hand the SH projection settings to the current model
+	void applySHProjection();
+
+	//timing mode (-timing t): steps still to measure (0 = off), warm-up steps left,
+	//and the accumulated per-step measurements
+	int timingSteps;
+	int timingWarmup;
+	struct TimingStat {
+		double sum = 0.0, min = 1e300, max = 0.0;
+		long count = 0;
+		void add(double v){ sum += v; if (v < min) min = v; if (v > max) max = v; count++; }
+		double mean() const { return count ? sum / count : 0.0; }
+	};
+	TimingStat statProject, statGrid, statInteract, statUpload, statStep, statFrame;
+	std::chrono::steady_clock::time_point timingLastFrame;
+	bool timingHaveFrame;
+	//record one measured step; print the report and quit after the last one
+	void timingRecord(double stepUs);
+	void timingReport();
+
 	//create position and velocity data for boids dependend on currentInitPlacement
 	void createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color);
 	//placement: every boid at a uniform-random position in the world cube with a random velocity
@@ -107,6 +141,10 @@ public:
 	void init();
 	//start simulation, optionally with a specific model number
 	void start(int initialModel = BOID_SIMPLE);
+	//start simulation with command-line options (scene, SH projection, timing mode)
+	void start(const RunOptions& options);
+	//"SH: Dirac" / "SH: vMF (k=..)" for SH models, "" otherwise (for the overlay)
+	const char* getSHProjectionName();
 	//do a simulation step
 	void simulationStep();
 	//return complete simulation time

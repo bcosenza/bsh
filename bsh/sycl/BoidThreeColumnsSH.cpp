@@ -29,40 +29,59 @@ BoidThreeColumnsSH::BoidThreeColumnsSH(std::vector<Vec4> pos, std::vector<Vec4> 
 	pathWeight = 0.0f;
 	numObst = (int)posObst.size();
 
-	d_obstacleSH = sycl::malloc_device<float>((size_t)numObst * OBST_STRIDE, queue);
-	d_posObst    = sycl::malloc_device<sf4>(numObst, queue);
+	d_obstacleSH    = sycl::malloc_device<float>((size_t)numObst * OBST_STRIDE, queue);
+	d_obstacleSHvmf = sycl::malloc_device<float>((size_t)numObst * OBST_STRIDE, queue);
+	d_posObst       = sycl::malloc_device<sf4>(numObst, queue);
 
-	// --- project each obstacle point's repulsion vectors into a vector-valued SH
-	// field, once at setup (the geometry is static). For every corner vector c of
-	// the point, accumulate SHEval3(dir(c)) weighted by each component of c. ---
+	obstCor = cor;
+	obstStart = start;
+	obstEnd = end;
+
+	// project the static obstacle geometry once per kernel
+	projectObstacles(SHDirac(), d_obstacleSH);
+	projectObstacles(vmfPolicy(), d_obstacleSHvmf);
+	vmfProjectedK = vmfK;
+
+	queue.memcpy(d_posObst, posObst.data(), (size_t)numObst * sizeof(Vec4));   // Vec4 == sf4 layout
+	queue.wait();
+}
+
+// Project each obstacle point's repulsion vectors into a vector-valued SH field:
+// for every corner vector c of the point, project dir(c) with policy P, weighted
+// by each component of c (separate X/Y/Z coefficient sets).
+template <class P>
+void BoidThreeColumnsSH::projectObstacles(const P& policy, float* dst){
 	std::vector<float> sh((size_t)numObst * OBST_STRIDE, 0.0f);
 	for (int i = 0; i < numObst; i++){
 		float* c = sh.data() + (size_t)i * OBST_STRIDE;
-		for (unsigned int j = start[i]; j < end[i]; j++){
-			const Vec4& vv = cor[j];
+		for (unsigned int j = obstStart[i]; j < obstEnd[i]; j++){
+			const Vec4& vv = obstCor[j];
 			float len = std::sqrt(vv.x * vv.x + vv.y * vv.y + vv.z * vv.z);
 			if (len < 1e-6f) continue;
-			float b[8];
-			shEval3(vv.x / len, vv.y / len, vv.z / len, b);
-			for (int k = 0; k < 8; k++){
-				c[0  + k] += b[k] * vv.x;
-				c[8  + k] += b[k] * vv.y;
-				c[16 + k] += b[k] * vv.z;
+			const float comp[3] = { vv.x, vv.y, vv.z };
+			for (int a = 0; a < 3; a++){
+				float t[SH_COEFFS];
+				shProject(vv.x / len, vv.y / len, vv.z / len, comp[a], policy, t);
+				for (int k = 0; k < 8; k++) c[a * 8 + k] += t[1 + k];
+				c[24 + a] += t[0];
 			}
-			c[24] += SH_BAND0 * vv.x;
-			c[25] += SH_BAND0 * vv.y;
-			c[26] += SH_BAND0 * vv.z;
 		}
 	}
+	queue.memcpy(dst, sh.data(), sh.size() * sizeof(float)).wait();
+}
 
-	queue.memcpy(d_obstacleSH, sh.data(), (size_t)numObst * OBST_STRIDE * sizeof(float));
-	queue.memcpy(d_posObst, posObst.data(), (size_t)numObst * sizeof(Vec4));   // Vec4 == sf4 layout
-	queue.wait();
+void BoidThreeColumnsSH::setSHProjection(int mode, float k){
+	BoidGroupAvoidanceSH::setSHProjection(mode, k);
+	if (vmfK != vmfProjectedK){
+		projectObstacles(vmfPolicy(), d_obstacleSHvmf);
+		vmfProjectedK = vmfK;
+	}
 }
 
 BoidThreeColumnsSH::~BoidThreeColumnsSH(){
 	queue.wait();
 	sycl::free(d_obstacleSH, queue);
+	sycl::free(d_obstacleSHvmf, queue);
 	sycl::free(d_posObst, queue);
 	if (d_goal) sycl::free(d_goal, queue);
 	// ~BoidGroupAvoidanceSH frees the group SH; ~BoidGridBase / ~BoidModelSimpleSYCL the rest
@@ -84,6 +103,7 @@ void BoidThreeColumnsSH::simulate(float dt){
 	const sf4   origin = gridOrigin;
 
 	auto t0 = std::chrono::high_resolution_clock::now();
+	resetPhaseEvents();
 
 	// project each boid's heading into its group's SH basis (inherited, on-device)
 	projectGroupSH();
@@ -98,7 +118,7 @@ void BoidThreeColumnsSH::simulate(float dt){
 	int* cellStart = d_cellStart;
 	int* cellEnd   = d_cellEnd;
 	unsigned int* index = d_index;
-	float* obstacleSH = d_obstacleSH;
+	float* obstacleSH = (shMode == SHMode::VMF) ? d_obstacleSHvmf : d_obstacleSH;
 	sf4*   posObst    = d_posObst;
 	const int   nObst  = numObst;
 	const float obstF  = obstStrength;
@@ -108,7 +128,7 @@ void BoidThreeColumnsSH::simulate(float dt){
 	const sf4*  goal       = d_goal;
 	const float wPath      = pathWeight;
 
-	queue.parallel_for(sycl::range<1>(n), [=](sycl::id<1> idx){
+	sycl::event ev = queue.parallel_for(sycl::range<1>(n), [=](sycl::id<1> idx){
 		const int k = (int)idx[0];
 		sf4 p = sortedPos[k];
 		sf4 v = sortedVel[k];
@@ -146,14 +166,14 @@ void BoidThreeColumnsSH::simulate(float dt){
 		outPos[orig] = p;
 		outVel[orig] = v;
 	});
+	evInteract.set(ev, ev);
 	queue.wait();
+	collectPhaseTimes();
 
 	auto t1 = std::chrono::high_resolution_clock::now();
 	lastSimTimeMs = (long)std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 
 	// draw: upload into the ping-pong VBO the base's getPosVAO() renders this frame
 	bool pingPong = ((helper++ % 2) == 0);
-	uploadToVBO(outPos, pingPong ? pos_out_vbo[0] : pos_vbo[0]);
-	uploadToVBO(outVel, pingPong ? vel_out_vbo[0] : vel_vbo[0]);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	uploadState(outPos, outVel, pingPong);
 }

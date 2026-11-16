@@ -14,6 +14,9 @@
 #include "vectorTypes.h"
 #include "gfx.h"
 #include <math.h>
+#include <algorithm>
+#include <cstdio>
+#include <iostream>
 
 Simulation *Simulation::pInstance = NULL;
 
@@ -205,6 +208,11 @@ Simulation::Simulation() {
 	currentModel = BOID_SIMPLE;
 	pendingModel = BOID_SIMPLE;
 	currentSceneName = findScene(BOID_SIMPLE)->name;
+	shMode = SH_PROJECTION_DEFAULT;
+	vmfK = SH_VMF_KAPPA;
+	timingSteps = 0;
+	timingWarmup = 0;
+	timingHaveFrame = false;
 #ifdef USE_SYCL
 	boidModel = new BoidModelSimpleSYCL(pos, vel, color, &simParams);
 #else
@@ -281,6 +289,7 @@ void Simulation::restart(int modelNum){
 	tunnel->setVisibility(scene->showTunnel);
 
 	boidModel = createModel(modelNum);
+	applySHProjection();
 	worldGround = new WorldGround(scene->flatGround, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
 	worldBox = new WorldBox(simParams.gridSize.x, TRUE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
 
@@ -368,13 +377,96 @@ void Simulation::start(int initialModel){
 	}
 }
 
+void Simulation::start(const RunOptions& options){
+	shMode = options.shMode;
+	vmfK = options.vmfK;
+	timingSteps = (options.timingSteps > 0) ? options.timingSteps : 0;
+	timingWarmup = timingSteps ? TIMING_WARMUP_STEPS : 0;
+	applySHProjection();
+	start(options.model);
+}
+
+void Simulation::applySHProjection(){
+	if (boidModel)
+		boidModel->setSHProjection(shMode, vmfK);
+}
+
+const char* Simulation::getSHProjectionName(){
+	return boidModel->getSHProjectionName();
+}
+
 void Simulation::simulationStep(){
 	if (pendingModel != currentModel){
 		switchToModel(pendingModel);
+		// a scene the build does not have leaves currentModel unchanged; stop
+		// retrying it every frame
+		pendingModel = currentModel;
 		return;
 	}
-	timeDiff = getTimeDiff();
+	if (timingSteps == 0){
+		timeDiff = getTimeDiff();
+		boidModel->simulate(timeDiff);
+		return;
+	}
+
+	// timing mode: fixed time step, so every run of a scene integrates the same
+	// trajectory whatever the frame rate
+	timeDiff = TIMING_FIXED_DT;
+	auto t0 = std::chrono::steady_clock::now();
 	boidModel->simulate(timeDiff);
+	auto t1 = std::chrono::steady_clock::now();
+	timingRecord(std::chrono::duration<double, std::micro>(t1 - t0).count());
+}
+
+void Simulation::timingRecord(double stepUs){
+	// frame time: between the ends of consecutive steps (step + render + swap)
+	const auto now = std::chrono::steady_clock::now();
+	const double frameUs = timingHaveFrame
+		? std::chrono::duration<double, std::micro>(now - timingLastFrame).count() : 0.0;
+	const bool haveFrame = timingHaveFrame;
+	timingLastFrame = now;
+	timingHaveFrame = true;
+
+	if (timingWarmup > 0){ timingWarmup--; return; }   // JIT, allocation, first-touch
+
+	const PhaseTimes pt = boidModel->getPhaseTimes();
+	statProject.add(pt.projectUs);
+	statGrid.add(pt.gridUs);
+	statInteract.add(pt.interactUs);
+	statUpload.add(pt.uploadUs);
+	statStep.add(stepUs);
+	if (haveFrame) statFrame.add(frameUs);
+
+	if (statStep.count >= timingSteps){
+		timingReport();
+		timingSteps = 0;
+		GFX::getInstance().appDestroyHandler();
+	}
+}
+
+void Simulation::timingReport(){
+	std::stringstream s;
+	s << "timing: scene " << currentSceneName << ", " << simParams.numBodies << " boids, "
+	  << (boidModel->getSHProjectionName()[0] ? boidModel->getSHProjectionName() : "no SH")
+	  << ", " << statStep.count << " steps (+" << TIMING_WARMUP_STEPS << " warm-up), dt "
+	  << TIMING_FIXED_DT << "\n";
+	s << "  phase              mean us      min us      max us\n";
+	auto row = [&s](const char* name, const TimingStat& t){
+		char line[128];
+		snprintf(line, sizeof(line), "  %-14s %11.1f %11.1f %11.1f\n", name, t.mean(), t.count ? t.min : 0.0, t.max);
+		s << line;
+	};
+	row("SH projection", statProject);
+	row("grid build", statGrid);
+	row("interaction", statInteract);
+	row("upload (host)", statUpload);
+	row("simulate()", statStep);
+	row("frame (wall)", statFrame);
+	s << "  GPU phases are device profiling times; simulate() is the host-side time of\n"
+	     "  the whole step including upload and synchronization; frame includes rendering.\n";
+
+	std::cout << s.str() << std::flush;
+	logFile->writeLog(s.str());
 }
 
 float Simulation::getTimeDiff(){
@@ -475,6 +567,19 @@ void Simulation::keyPress(unsigned char key){
 	case 's':
 	case 'S':
 		skybox->toggleVisibility();
+		break;
+	case 'p':
+	case 'P':	//switch the SH projection kernel (Dirac <-> von Mises-Fisher)
+		shMode = (shMode == SH_PROJECTION_VMF) ? SH_PROJECTION_DIRAC : SH_PROJECTION_VMF;
+		applySHProjection();
+		break;
+	case '[':	//halve / double the vMF concentration k
+		vmfK = std::max(vmfK * 0.5f, 1.0f / 64.0f);
+		applySHProjection();
+		break;
+	case ']':
+		vmfK = std::min(vmfK * 2.0f, 1024.0f);
+		applySHProjection();
 		break;
 	case '\033': // escape quits
 	case '\015': // Enter quits
