@@ -8,7 +8,7 @@
 #include "Boid4GroupsAvoidanceSH.h" // SYCL: Four groups avoidance with SH scene
 #include "BoidThreeColumnsSH.h"     // SYCL: Three columns avoidance with SH scene
 #include "BoidTunnelSH.h"           // SYCL: Tunnel SH scene
-#include "BoidCrossingLanesSH.h"    // SYCL: SH accuracy, crossing lanes scene
+#include "BoidCompositionSH.h"      // SYCL: SH accuracy, four groups composition scene
 #include "BoidPlateLanesSH.h"       // SYCL: SH accuracy, plate lanes scene
 #else
 #include "BoidModelCL.h"           // concrete OpenCL models constructed in createModel()
@@ -140,10 +140,10 @@ static const SceneConfig sceneTable[] = {
 #endif
 
 #ifdef USE_SYCL
-	// SYCL: scenes 8 and 9 are the SH accuracy scenes (lanes stacked along y in the
-	// 1200^3 world, see AccuracyLanes.h): crossing groups for the group SH term, and
-	// groups facing thin plates for the obstacle SH term.
-	{ BOID_SH_OBSTACLE, "8: SH accuracy - crossing lanes", NUM_BOIDS_ACC_CROSSING,
+	// SYCL: scenes 8 and 9 are the SH accuracy scenes: the four groups of scene 5
+	// with a composite (Gaunt product) behaviour for one group, and groups facing
+	// thin plates for the obstacle SH term (lanes stacked along y, AccuracyLanes.h).
+	{ BOID_SH_OBSTACLE, "8: SH accuracy - four groups composition", NUM_BOIDS_SH,
 	  WEIGHT_ALIGNMENT, WEIGHT_COHESION, WEIGHT_SEPARATION, WEIGHT_OWN, 0.f,
 	  MAX_VEL_SIMPLE, MAX_VEL_COR_SIMPLE,
 	  GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z,
@@ -239,6 +239,9 @@ Simulation::Simulation() {
 	accuracyCount = 0;
 	runSeed = -1;
 	headingSpread = 0.0f;
+	snapNext = 0;
+	snapStep = -1;
+	snapDir = ".";
 #ifdef USE_SYCL
 	boidModel = new BoidModelSimpleSYCL(pos, vel, color, &simParams);
 #else
@@ -368,7 +371,7 @@ BoidModel* Simulation::createModel(int modelNum){
 		tunnel->getObstacleForce(&cor, &start, &end, &posObst, 0);
 		return new BoidTunnelSH(pos, vel, color, &simParams, cor, start, end, posObst, goal);
 	}
-	case BOID_SH_OBSTACLE:	return new BoidCrossingLanesSH(pos, vel, color, &simParams, goal);
+	case BOID_SH_OBSTACLE:	return new BoidCompositionSH(pos, vel, color, &simParams, goal);
 	case BOID_SH_OBSTACLE_COMBINED: {
 		std::vector<Vec4> cor, posObst;
 		std::vector<unsigned int> start, end;
@@ -425,9 +428,13 @@ void Simulation::start(const RunOptions& options){
 	accuracySteps = (options.accuracySteps > 0) ? options.accuracySteps : 0;
 	accuracyOut = options.accuracyOut;
 	headingSpread = options.headingSpread;
-	// placements are reproducible when seeded; accuracy runs always are
+	snapFrames = options.snapshotFrames;
+	std::sort(snapFrames.begin(), snapFrames.end());
+	snapFrames.erase(std::unique(snapFrames.begin(), snapFrames.end()), snapFrames.end());
+	snapDir = options.snapshotDir;
+	// placements are reproducible when seeded; accuracy and snapshot runs always are
 	runSeed = options.seed;
-	if (runSeed < 0 && accuracySteps > 0) runSeed = ACCURACY_DEFAULT_SEED;
+	if (runSeed < 0 && (accuracySteps > 0 || !snapFrames.empty())) runSeed = ACCURACY_DEFAULT_SEED;
 	if (runSeed >= 0) srand((unsigned int)runSeed);
 	applySHProjection();
 	start(options.model);
@@ -448,6 +455,15 @@ void Simulation::simulationStep(){
 		// a scene the build does not have leaves currentModel unchanged; stop
 		// retrying it every frame
 		pendingModel = currentModel;
+		return;
+	}
+	if (!snapFrames.empty()){
+		// snapshot mode: frame 0 is the initial state, frame N the state after N
+		// fixed-dt steps; GFX::render writes the due frames after drawing them
+		if (snapStep < 0){ snapStep = 0; return; }
+		timeDiff = TIMING_FIXED_DT;
+		boidModel->simulate(timeDiff);
+		snapStep++;
 		return;
 	}
 	if (accuracySteps > 0){
@@ -524,6 +540,16 @@ void Simulation::timingReport(){
 	logFile->writeLog(s.str());
 }
 
+bool Simulation::snapshotDue(std::string* path){
+	if (snapStep < 0 || snapNext >= snapFrames.size() || snapFrames[snapNext] != snapStep)
+		return false;
+	char name[64];
+	snprintf(name, sizeof(name), "scene%d_snap_%04d.png", currentModel, snapStep);
+	*path = snapDir + "/" + name;
+	snapNext++;
+	return true;
+}
+
 void Simulation::accuracyFinish(){
 	accuracySteps = 0;
 	if (!boidModel->hasAccuracyMetrics()){
@@ -576,10 +602,10 @@ void Simulation::switchToModel(int modelNum){
 	    modelNum != BOID_SH_WAY1 && modelNum != BOID_SH_WAY2 &&
 	    modelNum != BOID_SH_OBSTACLE && modelNum != BOID_SH_OBSTACLE_COMBINED)
 		return;
-	// the accuracy scenes have their own lane placements; leaving them, drop a lane
-	// placement the other scenes cannot use
+	// scene 8 uses the four-groups placement, scene 9 its own lane placement;
+	// leaving scene 9, drop the lane placement the other scenes cannot use
 	if (modelNum == BOID_SH_OBSTACLE)
-		currentInitPlacement = PLACEMENT_CROSSING_LANES;
+		currentInitPlacement = 3;
 	else if (modelNum == BOID_SH_OBSTACLE_COMBINED)
 		currentInitPlacement = PLACEMENT_PLATE_LANES;
 	else if (currentInitPlacement >= MODEL_INIT_PLACEMENT_MAX)
@@ -783,7 +809,6 @@ static const char* const kPlacementNames[MODEL_PLACEMENT_COUNT] = {
 	"two groups asymmetric",
 	"four groups",
 	"three groups",
-	"crossing lanes",
 	"plate lanes",
 };
 
@@ -896,9 +921,6 @@ void Simulation::createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std:
 		}
 		break;
 	}
-	case PLACEMENT_CROSSING_LANES:	//accuracy scene 8
-		initCrossingLanes(pos, vel, goal, color);
-		break;
 	case PLACEMENT_PLATE_LANES:		//accuracy scene 9
 		initPlateLanes(pos, vel, goal, color);
 		break;
@@ -947,37 +969,6 @@ Vec4 Simulation::noisyHeading(const Vec4& dir, float speed){
 		mz = w * mz + s * (c * e1z + sn * e2z);
 	}
 	return Vec4(mx * speed, my * speed, mz * speed, 0.f);
-}
-
-//accuracy scene 8: per lane L, groups 2L (heading +x) and 2L+1 (at CROSS_DEG[L] from
-//it) start APPROACH before the lane centre and aim at it, so they meet there at the
-//lane's angle; their goals lie APPROACH beyond it on the same line. In the 0-degree
-//lane the groups fly side by side (parallel control).
-//Groups are the contiguous buckets of groupOf(), as the models expect.
-void Simulation::initCrossingLanes(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color){
-	const int n = (int)simParams.numBodies;
-	const int ng = 2 * AccLanes::LANES;
-	const float wx = CELL_SIZE_X * simParams.gridSize.x;
-	const float wy = CELL_SIZE_Y * simParams.gridSize.y;
-	const float wz = CELL_SIZE_Z * simParams.gridSize.z;
-	for (int i = 0; i < n; i++){
-		const int g = (int)(((long long)i * ng) / n);
-		const int lane = g / 2;
-		const bool second = (g & 1) != 0;
-		const float a = (second ? AccLanes::CROSS_DEG[lane] : 0.0f) * (float)CL_M_PI / 180.f;
-		const Vec4 dir(cosf(a), 0.f, sinf(a), 0.f);
-		Vec4 target(0.5f * wx, AccLanes::laneY(lane), 0.5f * wz, 1.f);
-		if (second && AccLanes::CROSS_DEG[lane] == 0.0f)
-			target.z += AccLanes::PARALLEL_OFFSET;
-		const Vec4 startC(target.x - AccLanes::APPROACH * dir.x, target.y, target.z - AccLanes::APPROACH * dir.z, 1.f);
-
-		(*pos)[i] = clusterPos(startC.x / wx, startC.y / wy, startC.z / wz, TEST_SETUP_RADIUS);
-		const Vec4 aim = dirTo((*pos)[i], target, 1.0f);
-		(*vel)[i] = noisyHeading(aim, simParams.maxVel);
-		// goal: APPROACH beyond the lane centre on the group's line (keeps the course)
-		(*goal)[i] = Vec4(target.x + AccLanes::APPROACH * dir.x, target.y, target.z + AccLanes::APPROACH * dir.z, 0.f);
-		(*color)[i] = second ? COLOR_BLUE : COLOR_RED;
-	}
 }
 
 //accuracy scene 9: per lane L, one group starts APPROACH before the lane's plate on

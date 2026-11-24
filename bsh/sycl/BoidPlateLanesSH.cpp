@@ -174,6 +174,8 @@ void BoidPlateLanesSH::simulate(float dt){
 			r[AccuracyProbe::AUX_V]   = sV.x() * side;
 			r[AccuracyProbe::B_DIST]  = clearance;
 			r[AccuracyProbe::B_EVENT] = pen;
+			for (int f = AccuracyProbe::FIELD_SE_D; f <= AccuracyProbe::FIELD_NEG_V; f++)
+				r[f] = 0.0f;   // no whole-field comparison in this scene
 		}
 	});
 	evInteract.set(ev, ev);

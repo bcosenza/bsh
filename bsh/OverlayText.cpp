@@ -366,6 +366,8 @@ void OverlayText::renderText(std::vector<const char*> textVector, float xBegin, 
 }
 
 void OverlayText::render(){
+	if (Simulation::getInstance().isSnapshotRun())
+		return;   // clean frames for the snapshots
 	float windowWidth = (float)GFX::getInstance().getWindowWidth();
 	float windowHeight = (float)GFX::getInstance().getWindowHeight();
 	float sx = 2.0f / windowWidth;

@@ -194,13 +194,11 @@
 //2 - small group and large group moving towards each other
 //3 - 4 groups moving towards each other
 //4 - 2 groups moving and crossing at center
-//5 - crossing lanes (SH accuracy scene 8; set by the scene, not cycled with 't')
-//6 - plate lanes (SH accuracy scene 9; set by the scene, not cycled with 't')
+//5 - plate lanes (SH accuracy scene 9; set by the scene, not cycled with 't')
 #define MODEL_INIT_PLACEMENT 0
 #define MODEL_INIT_PLACEMENT_MAX 5
-#define PLACEMENT_CROSSING_LANES 5
-#define PLACEMENT_PLATE_LANES 6
-#define MODEL_PLACEMENT_COUNT 7
+#define PLACEMENT_PLATE_LANES 5
+#define MODEL_PLACEMENT_COUNT 6
 
 //SH projection kernel used by the SYCL SH models (switch at runtime with 'p')
 //0 - Dirac (exact point projection)
@@ -219,9 +217,8 @@
 #define TIMING_FIXED_DT (1.0f / 60.0f)
 #define TIMING_WARMUP_STEPS 10
 
-//SH accuracy scenes (SYCL 8: crossing lanes, 9: plate lanes); lane geometry is in
-//AccuracyLanes.h. Boid counts: 7 lanes x 2 groups x 512 and 7 lanes x 1 group x 512.
-#define NUM_BOIDS_ACC_CROSSING 7168
+//SH accuracy scene 9 (plate lanes, geometry in AccuracyLanes.h): 7 lanes x 1 group x 512.
+//Scene 8 (four groups composition) uses NUM_BOIDS_SH.
 #define NUM_BOIDS_ACC_PLATES 3584
 //seed of the initial placement in accuracy mode (-accuracy t) unless -seed is given
 #define ACCURACY_DEFAULT_SEED 1

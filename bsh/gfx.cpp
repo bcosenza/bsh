@@ -1,5 +1,6 @@
 #include "common.h"
 #include "gfx.h"
+#include "ImageWrite.h"
 
 #define GL_PROGRAM_POINT_SIZE 0x8642
 
@@ -89,7 +90,19 @@ void GFX::render(){
 
 	//worldBox->render();
 
+	// snapshot mode: write the frame just drawn (back buffer, before the swap)
+	std::string snapPath;
+	if (Simulation::getInstance().snapshotDue(&snapPath)){
+		if (saveFramebufferPNG(snapPath, windowWidth, windowHeight))
+			printf("snapshot: %s (%dx%d)\n", snapPath.c_str(), windowWidth, windowHeight);
+		else
+			fprintf(stderr, "snapshot: cannot write %s\n", snapPath.c_str());
+	}
+
 	glutSwapBuffers();
+
+	if (Simulation::getInstance().snapshotsDone())
+		appDestroyHandler();
 }
 
 void GFX::setCam(unsigned int camPos){
@@ -167,6 +180,11 @@ void GFX::setCam(unsigned int camPos){
 		camCenter = glm::vec3(camCenterX, camCenterY, camCenterZ);
 		motionHandler(0, 5);	//dirty fix for white screen problem
 		break;
+	}
+
+	if (fixedCam){   // -camera: the same viewpoint for every scene
+		eye = fixedEye;
+		camCenter = fixedCenter;
 	}
 
 	eyeToCam = camCenter - eye;

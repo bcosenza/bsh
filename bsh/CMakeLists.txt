@@ -64,6 +64,7 @@ find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(GLUT REQUIRED)      # freeglut on both platforms
 find_package(Freetype REQUIRED)
+find_package(ZLIB REQUIRED)       # PNG snapshots (ImageWrite.cpp)
 
 # Only the OpenCL backend needs an OpenCL SDK, so a SYCL-only configure does not
 # require one to be installed.
@@ -98,7 +99,8 @@ set(SHARED_SOURCES
     Skybox.cpp
     Column.cpp
     Tunnel.cpp
-    PlateLanes.cpp)
+    PlateLanes.cpp
+    ImageWrite.cpp)
 
 if(WIN32)
     list(APPEND SHARED_SOURCES main_win.cpp)
@@ -131,7 +133,7 @@ set(SYCL_SOURCES
     sycl/BoidThreeColumnsSH.cpp
     sycl/BoidTunnelSH.cpp
     sycl/AccuracyProbe.cpp
-    sycl/BoidCrossingLanesSH.cpp
+    sycl/BoidCompositionSH.cpp
     sycl/BoidPlateLanesSH.cpp)
 
 # Copy the runtime assets a target opens by its own filename (textures, fonts)
@@ -162,6 +164,7 @@ if(BUILD_OPENCL)
         GLUT::GLUT
         OpenCL::OpenCL
         Freetype::Freetype
+        ZLIB::ZLIB
         glm::glm)
 
     if(NOT MSVC)
@@ -203,6 +206,7 @@ if(BUILD_SYCL)
         GLEW::GLEW
         GLUT::GLUT
         Freetype::Freetype
+        ZLIB::ZLIB
         glm::glm)
 
     copy_runtime_assets(boidSimSYCL)

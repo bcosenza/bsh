@@ -48,6 +48,10 @@ class GFX {
 		// holds the current camera preset position
 		unsigned int currentCamPos;
 
+		// fixed viewpoint from the command line (-camera), applied over every preset
+		bool fixedCam = false;
+		glm::vec3 fixedEye, fixedCenter;
+
 		// angle for the camera, calculated by mouse movement
 		float angleX;
 		float angleY;
@@ -84,6 +88,10 @@ class GFX {
 			return *pInstance;
 		}
 
+		//window size used by initOpenGL (call before it)
+		void setInitialWindowSize(int w, int h){ if (w > 0 && h > 0){ windowWidth = w; windowHeight = h; } }
+		//fixed camera (eye position, look-at point) that replaces the scene presets
+		void setFixedCamera(const glm::vec3& eyePos, const glm::vec3& center){ fixedCam = true; fixedEye = eyePos; fixedCenter = center; }
 		bool initOpenGL();
 		void startRendering();
 

@@ -31,19 +31,28 @@
 	  angle      = mean angle between s and s_ref where both are non-zero
 	  missed / spurious = share of agent-steps where only the reference / only the
 	               SH steering is non-zero
-	  neg        = share of agent-steps with a negative AUX value (scene 8: ringing
-	               of the field below zero; scene 9: push toward the plate)
+	  neg        = share of agent-steps with a negative AUX value (scene 9: push
+	               toward the plate)
+	  field nRMSE = whole-field error over the sampled directions (scene 8:
+	               the composite preference field), and the share of directions
+	               where the SH field is negative
+	B_DIST is reported as its minimum and its mean over the run.
 */
 class AccuracyProbe
 {
 public:
 	enum : int { S_REF = 0, S_D = 3, S_V = 6, AUX_REF = 9, AUX_D = 10, AUX_V = 11,
-	             B_DIST = 12, B_EVENT = 13, REC = 14 };
+	             B_DIST = 12, B_EVENT = 13,
+	             // optional whole-field comparison (scene 8): per agent, the sum over the
+	             // sampled directions of (P_sh - P_ref)^2 and P_ref^2, and the share of
+	             // directions where P_sh < 0. Zero when a scene does not use it.
+	             FIELD_SE_D = 14, FIELD_SE_V = 15, FIELD_SS_REF = 16, FIELD_NEG_D = 17, FIELD_NEG_V = 18,
+	             REC = 19 };
 
 	AccuracyProbe() : d_rec(nullptr), steps(0) {}
 
-	// laneOfAgent[i]: lane of boid i; laneValue[L]: the lane's angle (degrees),
-	// reported under the column name laneLabel
+	// laneOfAgent[i]: lane of boid i (-1: not recorded); laneValue[L]: the lane's
+	// value (e.g. an angle in degrees), reported under the column name laneLabel
 	void init(sycl::queue& q, const std::vector<int>& laneOfAgent,
 	          const std::vector<float>& laneValue, const char* laneLabel);
 	void release(sycl::queue& q);
@@ -72,7 +81,8 @@ private:
 		double n = 0;                                // agent-steps
 		double ssRef = 0, auxRef = 0, negRef = 0;
 		Err d, v;
-		double minDist = 1e30, events = 0;
+		double minDist = 1e30, sumDist = 0, events = 0;
+		double fieldSsRef = 0, fieldSeD = 0, fieldSeV = 0, fieldNegD = 0, fieldNegV = 0;
 	};
 
 	float* d_rec;

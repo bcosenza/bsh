@@ -61,6 +61,7 @@ void AccuracyProbe::collect(sycl::queue& q){
 	steps++;
 	const int n = (int)laneOf.size();
 	for (int i = 0; i < n; i++){
+		if (laneOf[i] < 0) continue;   // agent not under study
 		const float* r = host.data() + (size_t)i * REC;
 		Lane& L = lanes[laneOf[i]];
 		L.n += 1;
@@ -70,7 +71,13 @@ void AccuracyProbe::collect(sycl::queue& q){
 		accumulateErr(L.d, r + S_D, r + S_REF, r[AUX_D], r[AUX_REF]);
 		accumulateErr(L.v, r + S_V, r + S_REF, r[AUX_V], r[AUX_REF]);
 		L.minDist = std::min(L.minDist, (double)r[B_DIST]);
+		L.sumDist += r[B_DIST];
 		L.events += r[B_EVENT];
+		L.fieldSsRef += r[FIELD_SS_REF];
+		L.fieldSeD += r[FIELD_SE_D];
+		L.fieldSeV += r[FIELD_SE_V];
+		L.fieldNegD += r[FIELD_NEG_D];
+		L.fieldNegV += r[FIELD_NEG_V];
 	}
 }
 
@@ -85,6 +92,11 @@ static void errorStats(double n, double ssRef, double dot, double ss, double se,
 	nrmseFit = (n > 0) ? std::sqrt(resid / n) / den : 0.0;
 }
 
+// whole-field error relative to the reference field (0 when not recorded)
+static double fieldNrmse(double se, double ssRef){
+	return (ssRef > 0) ? std::sqrt(se / ssRef) : 0.0;
+}
+
 std::string AccuracyProbe::csv(const std::string& extraHeader, const std::string& extraValues,
                                const std::string& driver, float k, bool header) const {
 	std::ostringstream s;
@@ -96,7 +108,9 @@ std::string AccuracyProbe::csv(const std::string& extraHeader, const std::string
 		     ",D_angle_deg,V_angle_deg,D_missed,V_missed,D_spurious,V_spurious"
 		     ",aux_ref_mean,D_aux_mae,V_aux_mae,ref_neg,D_neg,V_neg,min_dist,events"
 		     // raw sums, so runs and lanes can be pooled exactly
-		     ",ref_ss,D_dot,D_ss,D_se,D_angsum,D_angN,V_dot,V_ss,V_se,V_angsum,V_angN\n";
+		     ",ref_ss,D_dot,D_ss,D_se,D_angsum,D_angN,V_dot,V_ss,V_se,V_angsum,V_angN"
+		     ",dist_mean,D_field_nrmse,V_field_nrmse,D_field_neg,V_field_neg"
+		     ",field_ss_ref,D_field_se,V_field_se\n";
 	}
 	for (size_t l = 0; l < lanes.size(); l++){
 		const Lane& L = lanes[l];
@@ -115,7 +129,11 @@ std::string AccuracyProbe::csv(const std::string& extraHeader, const std::string
 		  << "," << L.negRef / n << "," << L.d.neg / n << "," << L.v.neg / n
 		  << "," << L.minDist << "," << L.events
 		  << "," << L.ssRef << "," << L.d.dot << "," << L.d.ss << "," << L.d.se << "," << L.d.ang << "," << L.d.angN
-		  << "," << L.v.dot << "," << L.v.ss << "," << L.v.se << "," << L.v.ang << "," << L.v.angN << "\n";
+		  << "," << L.v.dot << "," << L.v.ss << "," << L.v.se << "," << L.v.ang << "," << L.v.angN
+		  << "," << L.sumDist / n
+		  << "," << fieldNrmse(L.fieldSeD, L.fieldSsRef) << "," << fieldNrmse(L.fieldSeV, L.fieldSsRef)
+		  << "," << L.fieldNegD / n << "," << L.fieldNegV / n
+		  << "," << L.fieldSsRef << "," << L.fieldSeD << "," << L.fieldSeV << "\n";
 	}
 	return s.str();
 }
@@ -140,6 +158,23 @@ std::string AccuracyProbe::summary(const std::string& title, const std::string& 
 		         L.d.angN > 0 ? L.d.ang / L.d.angN : 0.0, L.v.angN > 0 ? L.v.ang / L.v.angN : 0.0,
 		         L.minDist, L.events);
 		s << line;
+	}
+	// whole-field comparison, when the scene records it
+	bool field = false;
+	for (const Lane& L : lanes) field = field || L.fieldSsRef > 0;
+	if (field){
+		snprintf(line, sizeof(line), "  %4s %6s | %13s %13s | %10s %10s | %9s %8s\n",
+		         "lane", label.c_str(), "field nRMSE D", "field nRMSE V", "neg D", "neg V",
+		         (distLabel + " avg").c_str(), "");
+		s << line;
+		for (size_t l = 0; l < lanes.size(); l++){
+			const Lane& L = lanes[l];
+			const double n = (L.n > 0) ? L.n : 1.0;
+			snprintf(line, sizeof(line), "  %4zu %6.0f | %13.3f %13.3f | %9.2f%% %9.2f%% | %9.2f\n",
+			         l, laneVal[l], fieldNrmse(L.fieldSeD, L.fieldSsRef), fieldNrmse(L.fieldSeV, L.fieldSsRef),
+			         100.0 * L.fieldNegD / n, 100.0 * L.fieldNegV / n, L.sumDist / n);
+			s << line;
+		}
 	}
 	s << "  nRMSE: RMS error / RMS reference; fit: after the best scalar gain; ang: mean angle\n"
 	     "  to the reference (deg); D = Dirac SH, V = vMF SH, both on the same states.\n";

@@ -9,38 +9,27 @@
 #define _ACCURACYLANES_H_
 
 /*
-	Lane geometry of the SH accuracy scenes (SYCL scenes 8 and 9), shared by the
-	initial placements (Simulation), the plate obstacles (PlateLanes) and the
-	models' reports.
+	Lane geometry of the SH accuracy scene 9 (plate lanes), shared by the initial
+	placement (Simulation), the plate obstacles (PlateLanes) and the model's report.
 
-	Both scenes stack LANES independent experiments along y, LANE_SPACING apart
+	The scene stacks LANES independent experiments along y, LANE_SPACING apart
 	(more than the cohesion radius plus two group radii, so local flocking does
-	not couple lanes). Each lane is centred at (world x / 2, laneY(L), world z / 2)
-	and its groups move in the xz plane, starting APPROACH away from the centre.
-
-	Scene 8 (crossing lanes): two groups per lane; group A heads along +x, group B
-	at CROSS_DEG[L] from it, both aimed at the lane centre. Each group only feels
-	its own partner's SH, so a lane measures one encounter angle.
-	Scene 9 (plate lanes): one group per lane approaches a thin plate (normal +-x)
-	at incidence angle PLATE_DEG[L] from the normal.
+	not couple lanes). Each lane is centred at (world x / 2, laneY(L), world z / 2);
+	one group per lane starts APPROACH away from the centre and approaches a thin
+	plate (normal +-x) at incidence angle PLATE_DEG[L] from the normal.
 */
 namespace AccLanes {
 	constexpr int   LANES        = 7;
 	constexpr float LANE_Y0      = 120.0f;   // y of lane 0's centre (world units)
 	constexpr float LANE_SPACING = 160.0f;   // y distance between lane centres
 	constexpr float APPROACH     = 200.0f;   // start distance of a group from the lane centre
-	constexpr float PARALLEL_OFFSET = 120.0f; // z offset of group B in the 0-degree (parallel) lane
 	// Goal seeking keeps each group on its lane course: without it the flocking
-	// rules re-orient a dense group within ~150 steps and the encounter angle is
-	// lost. Each agent seeks the point APPROACH beyond the lane centre on its line
-	// (behind the plate in scene 9, as the tunnel's goals behind the wall). Scene 8
-	// uses the tunnel's path weight, scene 9 PLATE_PATH_WEIGHT below. The term is
-	// the same whatever drives the SH term.
-	constexpr float PATH_WEIGHT = 2.0f;
+	// rules re-orient a dense group within ~150 steps and the incidence angle is
+	// lost. Each agent seeks the point APPROACH behind the plate on its line (as
+	// the tunnel's goals behind the wall), with weight PLATE_PATH_WEIGHT below. The
+	// term is the same whatever drives the SH term.
 
-	// scene 8: angle between the two groups' headings, per lane (degrees)
-	constexpr float CROSS_DEG[LANES] = { 0.0f, 30.0f, 60.0f, 90.0f, 120.0f, 150.0f, 180.0f };
-	// scene 9: incidence angle from the plate normal, per lane (degrees)
+	// incidence angle from the plate normal, per lane (degrees)
 	constexpr float PLATE_DEG[LANES] = { 0.0f, 15.0f, 30.0f, 45.0f, 60.0f, 70.0f, 80.0f };
 
 	// scene 9 plate: half extents (x = half thickness, y = half height, z = half

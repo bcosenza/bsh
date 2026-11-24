@@ -39,6 +39,8 @@ struct RunOptions {
 	std::string accuracyOut = "accuracy.csv";	// CSV the accuracy rows are appended to
 	int   seed        = -1;						// random seed of the placements (-1: time based)
 	float headingSpread = 0.0f;				// lane scenes: vMF concentration of the initial heading noise (0 = none)
+	std::vector<int> snapshotFrames;		// write a PNG after these steps (fixed dt, no overlay), then quit
+	std::string snapshotDir = ".";			// where the snapshots are written
 };
 
 /*
@@ -128,6 +130,13 @@ private:
 	//lane scenes: vMF concentration of the initial heading noise (0 = none)
 	float headingSpread;
 
+	//snapshot mode (-snapshot f1 f2 ...): frames still to write (sorted), the next
+	//one, steps simulated in the scene (-1 before its first frame), output folder
+	std::vector<int> snapFrames;
+	size_t snapNext;
+	int snapStep;
+	std::string snapDir;
+
 	//create position and velocity data for boids dependend on currentInitPlacement
 	void createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color);
 	//placement: every boid at a uniform-random position in the world cube with a random velocity
@@ -148,8 +157,7 @@ private:
 	//sample a position inside a spherical cluster of radius r cells,
 	//centered at the given fractions of the world extent
 	Vec4 clusterPos(float fx, float fy, float fz, float r);
-	//accuracy scenes: lanes of two crossing groups (8) / one group facing a plate (9)
-	void initCrossingLanes(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color);
+	//accuracy scene 9: lanes of one group facing a plate
 	void initPlateLanes(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color);
 	//velocity 'speed' along unit 'dir', perturbed by vMF noise of concentration headingSpread
 	Vec4 noisyHeading(const Vec4& dir, float speed);
@@ -166,6 +174,11 @@ public:
 	void start(const RunOptions& options);
 	//"SH: Dirac" / "SH: vMF (k=..)" for SH models, "" otherwise (for the overlay)
 	const char* getSHProjectionName();
+	//snapshot mode: true for the whole run (the overlay is hidden); snapshotDue
+	//returns the file to write for the frame just rendered, snapshotsDone once all are
+	bool isSnapshotRun() const { return !snapFrames.empty(); }
+	bool snapshotDue(std::string* path);
+	bool snapshotsDone() const { return !snapFrames.empty() && snapNext >= snapFrames.size(); }
 	//do a simulation step
 	void simulationStep();
 	//return complete simulation time
