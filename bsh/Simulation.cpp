@@ -8,12 +8,16 @@
 #include "Boid4GroupsAvoidanceSH.h" // SYCL: Four groups avoidance with SH scene
 #include "BoidThreeColumnsSH.h"     // SYCL: Three columns avoidance with SH scene
 #include "BoidTunnelSH.h"           // SYCL: Tunnel SH scene
+#include "BoidCrossingLanesSH.h"    // SYCL: SH accuracy, crossing lanes scene
+#include "BoidPlateLanesSH.h"       // SYCL: SH accuracy, plate lanes scene
 #else
 #include "BoidModelCL.h"           // concrete OpenCL models constructed in createModel()
 #endif
 #include "vectorTypes.h"
 #include "gfx.h"
+#include "AccuracyLanes.h"
 #include <math.h>
+#include <fstream>
 #include <algorithm>
 #include <cstdio>
 #include <iostream>
@@ -37,6 +41,7 @@ struct SceneConfig {
 	bool flatGround;	// draw the flat ground used by the 2D worlds
 	bool showColumns;
 	bool showTunnel;
+	bool showPlates;	// thin plates of the accuracy scene 9 (false when omitted)
 };
 
 static const SceneConfig sceneTable[] = {
@@ -134,6 +139,22 @@ static const SceneConfig sceneTable[] = {
 	  CAMERA_PRESET_SH_SMALL, false, false, false },
 #endif
 
+#ifdef USE_SYCL
+	// SYCL: scenes 8 and 9 are the SH accuracy scenes (lanes stacked along y in the
+	// 1200^3 world, see AccuracyLanes.h): crossing groups for the group SH term, and
+	// groups facing thin plates for the obstacle SH term.
+	{ BOID_SH_OBSTACLE, "8: SH accuracy - crossing lanes", NUM_BOIDS_ACC_CROSSING,
+	  WEIGHT_ALIGNMENT, WEIGHT_COHESION, WEIGHT_SEPARATION, WEIGHT_OWN, 0.f,
+	  MAX_VEL_SIMPLE, MAX_VEL_COR_SIMPLE,
+	  GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z,
+	  CAMERA_PRESET_STANDARD, false, false, false },
+
+	{ BOID_SH_OBSTACLE_COMBINED, "9: SH accuracy - plate lanes", NUM_BOIDS_ACC_PLATES,
+	  WEIGHT_ALIGNMENT, WEIGHT_COHESION, WEIGHT_SEPARATION, WEIGHT_OWN, 0.f,
+	  MAX_VEL_SIMPLE, MAX_VEL_COR_SIMPLE,
+	  GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z,
+	  CAMERA_PRESET_STANDARD, false, false, false, true },
+#else
 	{ BOID_SH_OBSTACLE, "8: SH Obstacle", NUM_BOIDS_SH,
 	  WEIGHT_ALIGNMENT_SH_OBSTACLE, WEIGHT_COHESION_SH_OBSTACLE, WEIGHT_SEPARATION_SH_OBSTACLE, WEIGHT_OWN_SH_OBSTACLE, WEIGHT_GOAL_SH_OBSTACLE,
 	  MAX_VEL_GRID, MAX_VEL_COR_GRID,
@@ -145,6 +166,7 @@ static const SceneConfig sceneTable[] = {
 	  MAX_VEL_GRID, MAX_VEL_COR_GRID,
 	  GRID_SIZE_X_SH_OBSTACLE, GRID_SIZE_Y_SH_OBSTACLE, GRID_SIZE_Z_SH_OBSTACLE,
 	  CAMERA_PRESET_SH_SMALL, false, true, false },
+#endif
 
 	{ BOID_SH_OBSTACLE_TUNNEL, "0: SH Tunnel", NUM_BOIDS_SH,
 	  WEIGHT_ALIGNMENT_SH_OBSTACLE, WEIGHT_COHESION_SH_OBSTACLE, WEIGHT_SEPARATION_SH_OBSTACLE, WEIGHT_OWN_SH_OBSTACLE, WEIGHT_GOAL_SH_OBSTACLE,
@@ -213,6 +235,10 @@ Simulation::Simulation() {
 	timingSteps = 0;
 	timingWarmup = 0;
 	timingHaveFrame = false;
+	accuracySteps = 0;
+	accuracyCount = 0;
+	runSeed = -1;
+	headingSpread = 0.0f;
 #ifdef USE_SYCL
 	boidModel = new BoidModelSimpleSYCL(pos, vel, color, &simParams);
 #else
@@ -231,8 +257,10 @@ Simulation::Simulation() {
 	column3 = new Column(false, simParams.cellSize.x, simParams.cellSize.y, simParams.cellSize.z, 6, 0, 7, 10);
 
 	tunnel = new Tunnel(false, simParams.cellSize.x, simParams.cellSize.y, simParams.cellSize.z, 3, 3, 5, 5);
+	// plates of accuracy scene 9, which uses the GRID_SIZE world
+	plates = new PlateLanes(false, GRID_SIZE_X * CELL_SIZE_X, GRID_SIZE_Z * CELL_SIZE_Z);
 
-	renderList = std::vector<Renderable*>(10);
+	renderList = std::vector<Renderable*>(11);
 	renderList[0] = worldBox;
 	renderList[1] = boidModel;
 	renderList[2] = overlayText;
@@ -243,6 +271,7 @@ Simulation::Simulation() {
 	renderList[7] = column3;
 	renderList[8] = tunnel;
 	renderList[9] = grid;
+	renderList[10] = plates;
 }
 
 Simulation::~Simulation() {}
@@ -287,9 +316,12 @@ void Simulation::restart(int modelNum){
 	column2->setVisibility(scene->showColumns);
 	column3->setVisibility(scene->showColumns);
 	tunnel->setVisibility(scene->showTunnel);
+	plates->setVisibility(scene->showPlates);
 
 	boidModel = createModel(modelNum);
 	applySHProjection();
+	if (accuracySteps > 0)
+		boidModel->setAccuracyRecording(true);
 	worldGround = new WorldGround(scene->flatGround, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
 	worldBox = new WorldBox(simParams.gridSize.x, TRUE, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
 
@@ -335,6 +367,14 @@ BoidModel* Simulation::createModel(int modelNum){
 		std::vector<unsigned int> start(tunnel->obstacleSegmentCount()), end(tunnel->obstacleSegmentCount());
 		tunnel->getObstacleForce(&cor, &start, &end, &posObst, 0);
 		return new BoidTunnelSH(pos, vel, color, &simParams, cor, start, end, posObst, goal);
+	}
+	case BOID_SH_OBSTACLE:	return new BoidCrossingLanesSH(pos, vel, color, &simParams, goal);
+	case BOID_SH_OBSTACLE_COMBINED: {
+		std::vector<Vec4> cor, posObst;
+		std::vector<unsigned int> start, end;
+		plates->getObstacleForce(&cor, &start, &end, &posObst);
+		return new BoidPlateLanesSH(pos, vel, color, &simParams, cor, start, end, posObst,
+		                            plates->pointsPerPlate(), plates->plateCentres(), plates->plateHalfExtent(), goal);
 	}
 	default:			return new BoidModelSimpleSYCL(pos, vel, color, &simParams);
 	}
@@ -382,6 +422,13 @@ void Simulation::start(const RunOptions& options){
 	vmfK = options.vmfK;
 	timingSteps = (options.timingSteps > 0) ? options.timingSteps : 0;
 	timingWarmup = timingSteps ? TIMING_WARMUP_STEPS : 0;
+	accuracySteps = (options.accuracySteps > 0) ? options.accuracySteps : 0;
+	accuracyOut = options.accuracyOut;
+	headingSpread = options.headingSpread;
+	// placements are reproducible when seeded; accuracy runs always are
+	runSeed = options.seed;
+	if (runSeed < 0 && accuracySteps > 0) runSeed = ACCURACY_DEFAULT_SEED;
+	if (runSeed >= 0) srand((unsigned int)runSeed);
 	applySHProjection();
 	start(options.model);
 }
@@ -401,6 +448,14 @@ void Simulation::simulationStep(){
 		// a scene the build does not have leaves currentModel unchanged; stop
 		// retrying it every frame
 		pendingModel = currentModel;
+		return;
+	}
+	if (accuracySteps > 0){
+		// accuracy mode: fixed time step, the model records every step
+		timeDiff = TIMING_FIXED_DT;
+		boidModel->simulate(timeDiff);
+		if (!boidModel->hasAccuracyMetrics() || ++accuracyCount >= accuracySteps)
+			accuracyFinish();
 		return;
 	}
 	if (timingSteps == 0){
@@ -469,6 +524,39 @@ void Simulation::timingReport(){
 	logFile->writeLog(s.str());
 }
 
+void Simulation::accuracyFinish(){
+	accuracySteps = 0;
+	if (!boidModel->hasAccuracyMetrics()){
+		std::cerr << "accuracy: scene " << currentSceneName
+		          << " has no accuracy metrics (use the SYCL scenes 8 or 9)\n";
+		GFX::getInstance().appDestroyHandler();
+		return;
+	}
+
+	std::stringstream s;
+	s << boidModel->getAccuracySummary()
+	  << "  seed " << runSeed << ", heading spread " << headingSpread
+	  << ", dt " << TIMING_FIXED_DT << "; rows appended to " << accuracyOut << "\n";
+	std::cout << s.str() << std::flush;
+	logFile->writeLog(s.str());
+
+	// append one row per lane; write the header only into a new / empty file
+	bool header = true;
+	{
+		std::ifstream in(accuracyOut.c_str(), std::ios::ate);
+		if (in.good() && in.tellg() > 0) header = false;
+	}
+	std::stringstream extra;
+	extra << currentModel << "," << runSeed << "," << headingSpread;
+	std::ofstream out(accuracyOut.c_str(), std::ios::app);
+	if (out)
+		out << boidModel->getAccuracyCSV("scene,seed,heading_spread", extra.str(), header);
+	else
+		std::cerr << "accuracy: cannot write " << accuracyOut << "\n";
+
+	GFX::getInstance().appDestroyHandler();
+}
+
 float Simulation::getTimeDiff(){
 	unsigned long long timeNow = GetTickCount64();
 	float timeReturn = ((float)(timeNow - timeLast) / 1000.f);
@@ -485,8 +573,17 @@ void Simulation::switchToModel(int modelNum){
 	// the SYCL build ports the Simple, Grid, the group-avoidance and the obstacle models
 	if (modelNum != BOID_SIMPLE && modelNum != BOID_GRID &&
 	    modelNum != BOID_SH && modelNum != BOID_GRID_2D && modelNum != BOID_SH_2D &&
-	    modelNum != BOID_SH_WAY1 && modelNum != BOID_SH_WAY2)
+	    modelNum != BOID_SH_WAY1 && modelNum != BOID_SH_WAY2 &&
+	    modelNum != BOID_SH_OBSTACLE && modelNum != BOID_SH_OBSTACLE_COMBINED)
 		return;
+	// the accuracy scenes have their own lane placements; leaving them, drop a lane
+	// placement the other scenes cannot use
+	if (modelNum == BOID_SH_OBSTACLE)
+		currentInitPlacement = PLACEMENT_CROSSING_LANES;
+	else if (modelNum == BOID_SH_OBSTACLE_COMBINED)
+		currentInitPlacement = PLACEMENT_PLATE_LANES;
+	else if (currentInitPlacement >= MODEL_INIT_PLACEMENT_MAX)
+		currentInitPlacement = MODEL_INIT_PLACEMENT;
 	// two-group scenes default to the two-groups placement (the tunnel too, so the
 	// groups funnel through the wall); the four-group and three-columns scenes to
 	// the four-groups placement
@@ -556,7 +653,9 @@ void Simulation::keyPress(unsigned char key){
 		grid->toggleVisibility();
 		break;
 	case 't':
-	case 'T':	//switch to a different initial boid placement
+	case 'T':	//switch to a different initial boid placement (the lane scenes keep theirs)
+		if (currentInitPlacement >= MODEL_INIT_PLACEMENT_MAX)
+			break;
 		currentInitPlacement = (currentInitPlacement + 1) % MODEL_INIT_PLACEMENT_MAX;
 		restart(currentModel);
 		break;
@@ -569,8 +668,13 @@ void Simulation::keyPress(unsigned char key){
 		skybox->toggleVisibility();
 		break;
 	case 'p':
-	case 'P':	//switch the SH projection kernel (Dirac <-> von Mises-Fisher)
-		shMode = (shMode == SH_PROJECTION_VMF) ? SH_PROJECTION_DIRAC : SH_PROJECTION_VMF;
+	case 'P':	//cycle the SH projection: Dirac -> vMF (-> exact reference in scenes 8, 9)
+		if (shMode == SH_PROJECTION_DIRAC)
+			shMode = SH_PROJECTION_VMF;
+		else if (shMode == SH_PROJECTION_VMF && boidModel->supportsExactReference())
+			shMode = SH_PROJECTION_EXACT;
+		else
+			shMode = SH_PROJECTION_DIRAC;
 		applySHProjection();
 		break;
 	case '[':	//halve / double the vMF concentration k
@@ -673,16 +777,18 @@ void Simulation::initTwoGroups(std::vector<Vec4> *pos, std::vector<Vec4> *vel, s
 }
 
 //display name for each initial placement (index == currentInitPlacement)
-static const char* const kPlacementNames[MODEL_INIT_PLACEMENT_MAX] = {
+static const char* const kPlacementNames[MODEL_PLACEMENT_COUNT] = {
 	"one group",
 	"two groups",
 	"two groups asymmetric",
 	"four groups",
 	"three groups",
+	"crossing lanes",
+	"plate lanes",
 };
 
 const char* Simulation::getPlacementName() const {
-	if (currentInitPlacement >= 0 && currentInitPlacement < MODEL_INIT_PLACEMENT_MAX)
+	if (currentInitPlacement >= 0 && currentInitPlacement < MODEL_PLACEMENT_COUNT)
 		return kPlacementNames[currentInitPlacement];
 	return "";
 }
@@ -790,6 +896,12 @@ void Simulation::createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std:
 		}
 		break;
 	}
+	case PLACEMENT_CROSSING_LANES:	//accuracy scene 8
+		initCrossingLanes(pos, vel, goal, color);
+		break;
+	case PLACEMENT_PLATE_LANES:		//accuracy scene 9
+		initPlateLanes(pos, vel, goal, color);
+		break;
 	/* old placement 4 ("two groups crossing at the centre") -- disabled
 	for (int i = 0; i < (int)simParams.numBodies; i += 2)
 	{
@@ -810,6 +922,88 @@ void Simulation::createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std:
 	}
 }
 
+
+Vec4 Simulation::noisyHeading(const Vec4& dir, float speed){
+	float mx = dir.x, my = dir.y, mz = dir.z;
+	const float kh = headingSpread;
+	if (kh > 0.0f){
+		// sample a vMF direction of concentration kh around dir (Wood's method on S^2):
+		// cosine w to the mean, uniform azimuth phi in the tangent plane
+		const float u = randFloat(0.0f, 1.0f);
+		float w = 1.0f + logf(u + (1.0f - u) * expf(-2.0f * kh)) / kh;
+		w = std::max(-1.0f, std::min(1.0f, w));
+		const float phi = randFloat(0.0f, 2.0f * (float)CL_M_PI);
+		// tangent basis (e1, e2) of the unit mean direction
+		float ax = 0.f, ay = 1.f, az = 0.f;
+		if (fabsf(my) > 0.9f){ ax = 1.f; ay = 0.f; }
+		float e1x = ay * mz - az * my, e1y = az * mx - ax * mz, e1z = ax * my - ay * mx;
+		const float l1 = sqrtf(e1x * e1x + e1y * e1y + e1z * e1z);
+		e1x /= l1; e1y /= l1; e1z /= l1;
+		const float e2x = my * e1z - mz * e1y, e2y = mz * e1x - mx * e1z, e2z = mx * e1y - my * e1x;
+		const float s = sqrtf(std::max(0.0f, 1.0f - w * w));
+		const float c = cosf(phi), sn = sinf(phi);
+		mx = w * mx + s * (c * e1x + sn * e2x);
+		my = w * my + s * (c * e1y + sn * e2y);
+		mz = w * mz + s * (c * e1z + sn * e2z);
+	}
+	return Vec4(mx * speed, my * speed, mz * speed, 0.f);
+}
+
+//accuracy scene 8: per lane L, groups 2L (heading +x) and 2L+1 (at CROSS_DEG[L] from
+//it) start APPROACH before the lane centre and aim at it, so they meet there at the
+//lane's angle; their goals lie APPROACH beyond it on the same line. In the 0-degree
+//lane the groups fly side by side (parallel control).
+//Groups are the contiguous buckets of groupOf(), as the models expect.
+void Simulation::initCrossingLanes(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color){
+	const int n = (int)simParams.numBodies;
+	const int ng = 2 * AccLanes::LANES;
+	const float wx = CELL_SIZE_X * simParams.gridSize.x;
+	const float wy = CELL_SIZE_Y * simParams.gridSize.y;
+	const float wz = CELL_SIZE_Z * simParams.gridSize.z;
+	for (int i = 0; i < n; i++){
+		const int g = (int)(((long long)i * ng) / n);
+		const int lane = g / 2;
+		const bool second = (g & 1) != 0;
+		const float a = (second ? AccLanes::CROSS_DEG[lane] : 0.0f) * (float)CL_M_PI / 180.f;
+		const Vec4 dir(cosf(a), 0.f, sinf(a), 0.f);
+		Vec4 target(0.5f * wx, AccLanes::laneY(lane), 0.5f * wz, 1.f);
+		if (second && AccLanes::CROSS_DEG[lane] == 0.0f)
+			target.z += AccLanes::PARALLEL_OFFSET;
+		const Vec4 startC(target.x - AccLanes::APPROACH * dir.x, target.y, target.z - AccLanes::APPROACH * dir.z, 1.f);
+
+		(*pos)[i] = clusterPos(startC.x / wx, startC.y / wy, startC.z / wz, TEST_SETUP_RADIUS);
+		const Vec4 aim = dirTo((*pos)[i], target, 1.0f);
+		(*vel)[i] = noisyHeading(aim, simParams.maxVel);
+		// goal: APPROACH beyond the lane centre on the group's line (keeps the course)
+		(*goal)[i] = Vec4(target.x + AccLanes::APPROACH * dir.x, target.y, target.z + AccLanes::APPROACH * dir.z, 0.f);
+		(*color)[i] = second ? COLOR_BLUE : COLOR_RED;
+	}
+}
+
+//accuracy scene 9: per lane L, one group starts APPROACH before the lane's plate on
+//its -x side, at PLATE_DEG[L] from the plate normal, and aims at the plate centre
+void Simulation::initPlateLanes(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color){
+	const int n = (int)simParams.numBodies;
+	const int ng = AccLanes::LANES;
+	const float wx = CELL_SIZE_X * simParams.gridSize.x;
+	const float wy = CELL_SIZE_Y * simParams.gridSize.y;
+	const float wz = CELL_SIZE_Z * simParams.gridSize.z;
+	for (int i = 0; i < n; i++){
+		const int lane = (int)(((long long)i * ng) / n);
+		const float a = AccLanes::PLATE_DEG[lane] * (float)CL_M_PI / 180.f;
+		const Vec4 dir(cosf(a), 0.f, sinf(a), 0.f);
+		const Vec4 target(0.5f * wx, AccLanes::laneY(lane), 0.5f * wz, 1.f);
+		const Vec4 startC(target.x - AccLanes::APPROACH * dir.x, target.y, target.z - AccLanes::APPROACH * dir.z, 1.f);
+
+		(*pos)[i] = clusterPos(startC.x / wx, startC.y / wy, startC.z / wz, TEST_SETUP_RADIUS);
+		const Vec4 aim = dirTo((*pos)[i], target, 1.0f);
+		(*vel)[i] = noisyHeading(aim, simParams.maxVel);
+		// goal: APPROACH behind the plate on the group's line, so the plate field
+		// has to hold the group off (as the tunnel's goals behind the wall)
+		(*goal)[i] = Vec4(target.x + AccLanes::APPROACH * dir.x, target.y, target.z + AccLanes::APPROACH * dir.z, 0.f);
+		(*color)[i] = (lane % 2) ? COLOR_BLUE : COLOR_RED;
+	}
+}
 
 float Simulation::randFloat(float mn, float mx)
 {

@@ -23,11 +23,13 @@ cmake -S . -B build-cl -DBUILD_OPENCL=ON -DBUILD_SYCL=OFF
 Run the program from inside `build/`. `common.h` loads shaders and kernels through the relative paths `../shaders/` and `../cl/`:
 
 ```bash
-cd build && ./boidSimSYCL [scene] [-sh dirac|vmf] [-kappa k] [-timing t]
+cd build && ./boidSimSYCL [scene] [-sh dirac|vmf|exact] [-kappa k] [-timing t]
+                          [-accuracy t] [-out file.csv] [-seed s] [-hspread kh]
 ```
 
 - `-timing t` runs headless-style benchmarking: it does warm-up steps, then `t` fixed-dt steps, prints mean/min/max per phase (project/grid/interact/upload), and quits. Use it to measure performance.
-- Runtime keys: `1`–`0` switch scene, `r` restart, `+`/`-` double/halve the boid count, `t` cycle the initial placement, `p` toggle the SH projection (Dirac/vMF), `[`/`]` halve/double the vMF κ, `v`/`g`/`s`/`l` toggle the box, ground, skybox, and acceleration-grid overlay.
+- `-accuracy t` (scenes 8 and 9 only) runs `t` fixed-dt steps with a fixed seed. Each step it compares the Dirac and vMF SH steering against a brute-force reference on the same state, then prints a per-lane table, appends one CSV row per lane to `-out` (default `accuracy.csv`; the header is written only into a new file), and quits. `-sh exact` drives these scenes with the reference itself. `-seed` fixes the placement and `-hspread` adds vMF noise to the initial headings.
+- Runtime keys: `1`–`0` switch scene, `r` restart, `+`/`-` double/halve the boid count, `t` cycle the initial placement, `p` cycle the SH projection (Dirac → vMF, then the exact reference in scenes 8 and 9), `[`/`]` halve/double the vMF κ, `v`/`g`/`s`/`l` toggle the box, ground, skybox, and acceleration-grid overlay.
 
 There is no test suite or linter. Verify a change by building it and running the affected scene, or by using `-timing`.
 
@@ -48,16 +50,20 @@ IDE/IntelliSense errors on `sycl/*` files (for example, unresolved `sycl::` name
 | 5 | SH 2D | `Boid4GroupsAvoidanceSH` |
 | 6 | SH Way1 | `BoidThreeColumnsSH` (obstacle SH) |
 | 7 | SH Way2 | `BoidTunnelSH` |
-| 8/9/0 | Obstacle / Combined / Tunnel | (OpenCL only) |
+| 8 | SH Obstacle | `BoidCrossingLanesSH` (SH accuracy: crossing lanes, group term) |
+| 9 | SH Obstacle + Way | `BoidPlateLanesSH` (SH accuracy: plate lanes, obstacle term) |
+| 0 | SH Tunnel | (OpenCL only) |
 
 `scenes_notes.txt` describes the original OpenCL scenes and their known issues.
 
 **SYCL class hierarchy.** Each level adds one term to the per-agent steering:
-`BoidModel` (abstract interface, `BoidModel.h`) → `BoidModelSimpleView` (GL VBO/VAO rendering) → `BoidModelSimpleSYCL` (USM device buffers, the shared device helpers `wallRepulsion`, flocking maths, `shEval3`/`shProject`) → `BoidGridBase` (hash → sort → cell ranges → reorder, 27-cell neighbour search; the cell size comes from `GRID_ACCEL_CELL_SIZE` / interaction radius, not from the `GRID_SIZE_*` macros) → `BoidGroupAvoidance` → `BoidGroupAvoidanceSH` (per-group SH projection, N groups) → `Boid4GroupsAvoidanceSH`, and `BoidThreeColumnsSH` (precomputed obstacle SH field) → `BoidTunnelSH`.
+`BoidModel` (abstract interface, `BoidModel.h`) → `BoidModelSimpleView` (GL VBO/VAO rendering) → `BoidModelSimpleSYCL` (USM device buffers, the shared device helpers `wallRepulsion`, flocking maths, `shEval3`/`shProject`) → `BoidGridBase` (hash → sort → cell ranges → reorder, 27-cell neighbour search; the cell size comes from `GRID_ACCEL_CELL_SIZE` / interaction radius, not from the `GRID_SIZE_*` macros) → `BoidGroupAvoidance` → `BoidGroupAvoidanceSH` (per-group SH projection, N groups) → `Boid4GroupsAvoidanceSH`, and `BoidThreeColumnsSH` (precomputed obstacle SH field) → `BoidTunnelSH`. The accuracy scenes branch off as `BoidGroupAvoidanceSH` → `BoidCrossingLanesSH` and `BoidThreeColumnsSH` → `BoidPlateLanesSH`.
 
 Each step copies the device results back into GL VBOs on the host. There is no GL interop. Per-phase timings are reported through `getPhaseTimes()`.
 
-**SH projection policies** (`sycl/SHProjection.h`): `SHDirac` and `SHVonMisesFisher` are template parameters of the projection kernels, so each policy compiles to its own kernel with no runtime branch. A runtime `SHMode` chooses which instantiation runs. The vMF band factors are computed on the host in double precision. In the code the concentration is called `k`, because `kappa` means obstacle strength in the methods text.
+**SH projection policies** (`sycl/SHProjection.h`): `SHDirac` and `SHVonMisesFisher` are template parameters of the projection kernels, so each policy compiles to its own kernel with no runtime branch. A runtime `SHMode` chooses which instantiation runs. The vMF band factors are computed on the host in double precision. In the code the concentration is called `k`, because `kappa` means obstacle strength in the methods text. `SHMode::Exact` is not a projection: it selects the brute-force reference (the exact, untruncated vMF field with the same `k`), which only the accuracy scenes implement. Other scenes fall back to Dirac.
+
+**Accuracy scenes** (8, 9). Both scenes stack 7 independent lanes along y, with the geometry in `AccuracyLanes.h`. Scene 8 has two groups per lane that meet at a set crossing angle (0–180°), and each group feels only its partner's SH. Scene 9 has one group per lane facing a thin plate (`PlateLanes`, a shared renderable that also generates the obstacle points) at a set incidence angle. Goal seeking keeps the groups on course. Without it the flocking rules re-orient a dense group within about 150 steps. The plate points' 1/r² weight is tapered to zero at `PLATE_RANGE`, so the plate acts locally. Each step the models evaluate Dirac, vMF and the reference on the same state, and `sycl/AccuracyProbe` accumulates the per-lane statistics on the host.
 
 **Parameters.** All compile-time tuning lives in `SimParam.h` (weights, grid sizes, boid counts) and `BoidModel.h` (placements, SH projection defaults, camera presets). `simParams_t` is passed by value into kernels. In the OpenCL backend it is also duplicated by hand in each `.cl` file, as are `LOCAL_SIZE_LIMIT` and `bitonic_sort.cl`, and those copies must be kept in sync manually.
 

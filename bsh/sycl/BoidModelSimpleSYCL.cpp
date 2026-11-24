@@ -112,7 +112,12 @@ void BoidModelSimpleSYCL::simulate(float dt){
 }
 
 void BoidModelSimpleSYCL::setSHProjection(int mode, float k){
-	shMode = (mode == SH_PROJECTION_VMF) ? SHMode::VMF : SHMode::Dirac;
+	if (mode == SH_PROJECTION_VMF)
+		shMode = SHMode::VMF;
+	else if (mode == SH_PROJECTION_EXACT && supportsExactReference())
+		shMode = SHMode::Exact;
+	else
+		shMode = SHMode::Dirac;   // also the fallback for Exact in scenes without a reference
 	if (k > 0.0f) vmfK = k;
 }
 

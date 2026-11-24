@@ -94,9 +94,16 @@ public:
 	/* Phase durations of the last simulate() call (zero if not measured) */
 	virtual PhaseTimes getPhaseTimes() { return PhaseTimes(); }
 
-	/* Hook for the accuracy study: compare the SH steering of the current state
-	against a brute-force reference. Not implemented yet; meant for specific scenes. */
-	virtual void evaluateAgainstReference() {}
+	/* Accuracy study (SYCL scenes 8 and 9). supportsExactReference: the model can be
+	driven by the brute-force reference (SH_PROJECTION_EXACT). With recording on, each
+	step compares the Dirac and vMF SH steering against the reference on the same
+	state and accumulates per-lane statistics, read back as CSV rows (one per lane,
+	prefixed by extraValues; header line first if requested) or a printable table. */
+	virtual bool supportsExactReference() { return false; }
+	virtual bool hasAccuracyMetrics() { return false; }
+	virtual void setAccuracyRecording(bool on) {}
+	virtual std::string getAccuracyCSV(const std::string& extraHeader, const std::string& extraValues, bool header) { return ""; }
+	virtual std::string getAccuracySummary() { return ""; }
 
 protected:
 	BoidModel() {};

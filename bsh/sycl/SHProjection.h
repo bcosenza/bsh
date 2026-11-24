@@ -33,8 +33,20 @@
 	since kappa is the obstacle strength in the methods text.
 */
 
-// runtime selector; values match SH_PROJECTION_* in SimParam.h
-enum class SHMode : int { Dirac = SH_PROJECTION_DIRAC, VMF = SH_PROJECTION_VMF };
+// runtime selector; values match SH_PROJECTION_* in SimParam.h. Exact is not a
+// projection: it is the brute-force reference of the accuracy scenes (8, 9).
+enum class SHMode : int { Dirac = SH_PROJECTION_DIRAC, VMF = SH_PROJECTION_VMF, Exact = SH_PROJECTION_EXACT };
+
+// Normalisation of the vMF density on the sphere, written so the device evaluates
+// K(t) = vmfDensityNorm(k) * exp(k (t - 1)) without overflow (t = cosine to the
+// lobe axis). K integrates to 1, so its SH band factors are the a_l above and the
+// order-3 vMF projection reconstructs exactly its truncation. Host code, double.
+inline float vmfDensityNorm(float kf)
+{
+	const double k = (kf > 0.0f) ? (double)kf : 0.0;
+	if (k < 1e-6) return (float)(1.0 / (4.0 * M_PI));        // uniform limit
+	return (float)(k / (2.0 * M_PI * -std::expm1(-2.0 * k)));
+}
 
 // Dirac projection: coefficients are used as they are
 struct SHDirac

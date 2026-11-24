@@ -97,7 +97,8 @@ set(SHARED_SOURCES
     WorldGround.cpp
     Skybox.cpp
     Column.cpp
-    Tunnel.cpp)
+    Tunnel.cpp
+    PlateLanes.cpp)
 
 if(WIN32)
     list(APPEND SHARED_SOURCES main_win.cpp)
@@ -128,7 +129,10 @@ set(SYCL_SOURCES
     sycl/BoidGroupAvoidanceSH.cpp
     sycl/Boid4GroupsAvoidanceSH.cpp
     sycl/BoidThreeColumnsSH.cpp
-    sycl/BoidTunnelSH.cpp)
+    sycl/BoidTunnelSH.cpp
+    sycl/AccuracyProbe.cpp
+    sycl/BoidCrossingLanesSH.cpp
+    sycl/BoidPlateLanesSH.cpp)
 
 # Copy the runtime assets a target opens by its own filename (textures, fonts)
 # next to its executable. cl/ and shaders/ stay at the repo root and are reached

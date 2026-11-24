@@ -33,23 +33,24 @@ BoidGroupAvoidanceSH::~BoidGroupAvoidanceSH(){
 
 const char* BoidGroupAvoidanceSH::getSHProjectionName(){
 	std::stringstream s;
-	if (shMode == SHMode::VMF) s << "SH: vMF (k=" << vmfK << ")";
-	else                       s << "SH: Dirac";
+	if (shMode == SHMode::VMF)        s << "SH: vMF (k=" << vmfK << ")";
+	else if (shMode == SHMode::Exact) s << "SH: exact reference (vMF k=" << vmfK << ")";
+	else                              s << "SH: Dirac";
 	shProjectionName = s.str();
 	return shProjectionName.c_str();
 }
 
 void BoidGroupAvoidanceSH::projectGroupSH(){
-	if (shMode == SHMode::VMF) projectGroupSHImpl(vmfPolicy());
-	else                       projectGroupSHImpl(SHDirac());
+	if (shMode == SHMode::VMF) evProject = projectGroupSHImpl(vmfPolicy(), d_groupSH);
+	else                       evProject = projectGroupSHImpl(SHDirac(), d_groupSH);
 }
 
 template <class P>
-void BoidGroupAvoidanceSH::projectGroupSHImpl(const P& policy){
+BoidModelSimpleSYCL::PhaseEvents BoidGroupAvoidanceSH::projectGroupSHImpl(const P& policy, float* dst){
 	const int  n  = num;
 	const int  ng = numGroups;
 	const sf4* vel     = d_vel;       // current state, original boid order
-	float*     groupSH = d_groupSH;
+	float*     groupSH = dst;
 
 	sycl::event evFirst = queue.fill(groupSH, 0.0f, (size_t)ng * SH_COEFFS);
 
@@ -86,9 +87,15 @@ void BoidGroupAvoidanceSH::projectGroupSHImpl(const P& policy){
 			}
 		}
 	});
-	evProject.set(evFirst, evLast);
+	PhaseEvents ev;
+	ev.set(evFirst, evLast);
+	return ev;
 	// no wait: the in-order queue runs the grid build / interaction after this
 }
+
+// both policies are used by derived models (the accuracy scenes project both)
+template BoidModelSimpleSYCL::PhaseEvents BoidGroupAvoidanceSH::projectGroupSHImpl<SHDirac>(const SHDirac&, float*);
+template BoidModelSimpleSYCL::PhaseEvents BoidGroupAvoidanceSH::projectGroupSHImpl<SHVonMisesFisher>(const SHVonMisesFisher&, float*);
 
 void BoidGroupAvoidanceSH::simulate(float dt){
 	const int         n    = num;

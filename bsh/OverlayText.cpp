@@ -281,7 +281,7 @@ void OverlayText::createText(){
 	textExtended[10] = "Follow random boid             [F]";
 	textExtended[11] = "Switch camera                 [TAB]";
 	textExtended[12] = "Reset camera                       [C]";
-	textExtended[13] = "SH projection Dirac/vMF   [P]";
+	textExtended[13] = "SH projection Dirac/vMF/exact [P]";
 	textExtended[14] = "vMF concentration k /2, x2  [ [ ] ]";
 
 	textExtended2 = std::vector<const char*>(12);

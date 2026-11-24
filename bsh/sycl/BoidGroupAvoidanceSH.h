@@ -59,8 +59,10 @@ protected:
 	// group totals with one atomic per coefficient. Derived models call it at the
 	// start of their simulate().
 	void projectGroupSH();
-	// the projection kernel for one policy P (SHDirac / SHVonMisesFisher)
-	template <class P> void projectGroupSHImpl(const P& policy);
+	// the projection kernel for one policy P (SHDirac / SHVonMisesFisher), writing
+	// ng * SH_COEFFS coefficients into dst; returns the events bracketing it.
+	// Instantiated for both policies in the .cpp (derived models project both).
+	template <class P> PhaseEvents projectGroupSHImpl(const P& policy, float* dst);
 
 public:
 	// "SH: Dirac" or "SH: vMF (k=...)", for the overlay
@@ -81,6 +83,11 @@ protected:
 		const long long lo = ((long long)g * n + ng - 1) / ng;
 		const long long hi = ((long long)(g + 1) * n + ng - 1) / ng;
 		return (int)(hi - lo);
+	}
+	// first boid of group g (the same bucket bounds as groupOf / groupSize)
+	static int groupStart(int g, int n, int ng)
+	{
+		return (int)(((long long)g * n + ng - 1) / ng);
 	}
 
 	// SH step 2 for one agent (device code): the summed steering reconstructed from
@@ -111,20 +118,37 @@ protected:
 	// The push is perpendicular to the agent's heading h: away from the lateral part
 	// of the other flow, plus a small keep-right bias for the head-on case. Pushing
 	// along m instead would make head-on groups reverse.
+	// Split into field value / heading / push so the brute-force reference of the
+	// accuracy scenes feeds its exact f and m through the same push formula.
 	static sf4 shAvoidanceSteer(const sf4& v, const float* otherSH, float strength)
 	{
 		const sf4 h = safeNormalize(v);
+		return sidewaysSteer(h, shFieldValue(h, otherSH), shDominantHeading(otherSH), strength);
+	}
+
+	// reconstructed SH field value at unit direction h (unclamped)
+	static float shFieldValue(const sf4& h, const float* c)
+	{
 		float b[8];
 		shEval3(h.x(), h.y(), h.z(), b);
-
-		float val = otherSH[0] * SH_BAND0;
+		float val = c[0] * SH_BAND0;
 		for (int k = 0; k < 8; k++)
-			val += otherSH[1 + k] * b[k];
+			val += c[1 + k] * b[k];
+		return val;
+	}
 
-		// dominant heading of the other group from its band-1 (l=1) coefficients:
-		// out[0]=-a*y, out[1]=a*z, out[2]=-a*x  =>  dir ~ (-c[3], -c[1], c[2])
-		const sf4 m = safeNormalize(sf4(-otherSH[3], -otherSH[1], otherSH[2], 0.0f));
+	// dominant heading of a group from its band-1 (l=1) coefficients:
+	// out[0]=-a*y, out[1]=a*z, out[2]=-a*x  =>  dir ~ (-c[3], -c[1], c[2]).
+	// Band 1 is scaled uniformly by any zonal kernel, so this is kernel-independent.
+	static sf4 shDominantHeading(const float* c)
+	{
+		return safeNormalize(sf4(-c[3], -c[1], c[2], 0.0f));
+	}
 
+	// sideways push for an agent heading h, given the other group's field value
+	// val at h and its dominant heading m (see shAvoidanceSteer)
+	static sf4 sidewaysSteer(const sf4& h, float val, const sf4& m, float strength)
+	{
 		const float mh       = sycl::dot(m, h);
 		const float oncoming = 0.5f * (1.0f - mh);
 		const sf4   lateral  = m - h * mh;                       // other flow, across our heading

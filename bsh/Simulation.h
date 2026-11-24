@@ -24,6 +24,7 @@
 #include "SkyBox.h"
 #include "Column.h"
 #include "Tunnel.h"
+#include "PlateLanes.h"
 #include <chrono>
 
 /*
@@ -34,6 +35,10 @@ struct RunOptions {
 	int   timingSteps = 0;						// >0: measure that many steps, report, quit
 	int   shMode      = SH_PROJECTION_DEFAULT;	// SH projection kernel (SH_PROJECTION_*)
 	float vmfK        = SH_VMF_KAPPA;			// vMF concentration k
+	int   accuracySteps = 0;					// >0: record SH accuracy that many steps (scenes 8, 9), report, quit
+	std::string accuracyOut = "accuracy.csv";	// CSV the accuracy rows are appended to
+	int   seed        = -1;						// random seed of the placements (-1: time based)
+	float headingSpread = 0.0f;				// lane scenes: vMF concentration of the initial heading noise (0 = none)
 };
 
 /*
@@ -58,6 +63,7 @@ private:
 	Column* column2;
 	Column* column3;
 	Tunnel* tunnel;
+	PlateLanes* plates;
 
 	//vector which holds all objects which are drawn 
 	std::vector<Renderable*> renderList;
@@ -112,6 +118,16 @@ private:
 	void timingRecord(double stepUs);
 	void timingReport();
 
+	//accuracy mode (-accuracy t, scenes 8 and 9): steps still to record (0 = off),
+	//steps recorded, CSV path, seed used; then report, append the CSV and quit
+	int accuracySteps;
+	int accuracyCount;
+	std::string accuracyOut;
+	int runSeed;
+	void accuracyFinish();
+	//lane scenes: vMF concentration of the initial heading noise (0 = none)
+	float headingSpread;
+
 	//create position and velocity data for boids dependend on currentInitPlacement
 	void createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color);
 	//placement: every boid at a uniform-random position in the world cube with a random velocity
@@ -132,6 +148,11 @@ private:
 	//sample a position inside a spherical cluster of radius r cells,
 	//centered at the given fractions of the world extent
 	Vec4 clusterPos(float fx, float fy, float fz, float r);
+	//accuracy scenes: lanes of two crossing groups (8) / one group facing a plate (9)
+	void initCrossingLanes(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color);
+	void initPlateLanes(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color);
+	//velocity 'speed' along unit 'dir', perturbed by vMF noise of concentration headingSpread
+	Vec4 noisyHeading(const Vec4& dir, float speed);
 
 	Simulation();
 	~Simulation();
