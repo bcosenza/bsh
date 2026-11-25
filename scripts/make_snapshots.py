@@ -12,8 +12,15 @@ which renders the scene without the overlay text and writes one PNG per frame
 The seed and the fixed time step make every run of the same command produce the
 same images.
 
-With no --scene, it reproduces the paper figures of both accuracy scenes, each
-driven by the exact reference as in the accuracy evaluation:
+With no --scene, it reproduces the paper figures of the scaling and the accuracy
+scenes:
+  scene 4 (two groups) and scene 5 (four groups), long-range avoidance with SH:
+    frames 0 (start), 1700 (groups passing each other at a distance) and 2400
+    (after); near top-down 1200x1000 view; Dirac projection, goal seeking with
+    weight 2 (-goal 2) so the groups keep their course (without it they mill in
+    place). With vMF the head-on groups do not avoid each other (they overlap at
+    the centre), so these figures use Dirac.
+The accuracy scenes are driven by the exact reference, as in their evaluation:
   scene 9 (plate lanes): frames 0 (start), 900 (groups at the plates) and 1500
     (groups deflected along the plates); portrait 1080x1350 view from above and in
     front of the lane stack; k = 2.95.
@@ -28,7 +35,7 @@ Needs: the built SYCL binary (bsh/build/boidSimSYCL), a display (the app opens a
 window) and the oneAPI runtime (sourced from /opt/intel/oneapi/setvars.sh if
 ONEAPI_ROOT is not set).
 
-Run:  python3 make_snapshots.py                                   # scene 9 and 8 figures
+Run:  python3 make_snapshots.py                                   # all figures (scenes 4, 5, 8, 9)
       python3 make_snapshots.py --scene 9 --frames 5 15 200
       python3 make_snapshots.py --scene 7 --frames 0 600 1200 --sh vmf
       python3 make_snapshots.py --camera 120 1380 -120 590 700 550 --window 1920 1080
@@ -42,21 +49,25 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SETVARS = "/opt/intel/oneapi/setvars.sh"
 
 # paper figure settings per scene; camera = eye x y z, look-at x y z (world units)
+TOP_DOWN = [600, 1250, 430, 600, 600, 590]   # near top-down on the plane of motion (1200 world)
 SCENES = {
+    4: dict(frames=[0, 1700, 2400], camera=TOP_DOWN, window=[1200, 1000], kappa=2.95, sh="dirac", goal=2.0),
+    5: dict(frames=[0, 1700, 2400], camera=TOP_DOWN, window=[1200, 1000], kappa=2.95, sh="dirac", goal=2.0),
     9: dict(frames=[0, 900, 1500], camera=[120, 1380, -120, 590, 700, 550],   # above / in front of the lanes
             window=[1080, 1350], kappa=2.95, sh="exact"),
-    8: dict(frames=[0, 1200, 2000], camera=[600, 1250, 430, 600, 600, 590],   # near top-down on the plane
-            window=[1200, 1000], kappa=1.5, sh="exact"),
+    8: dict(frames=[0, 1200, 2000], camera=TOP_DOWN, window=[1200, 1000], kappa=1.5, sh="exact"),
 }
 
 
-def run_scene(binary, build_dir, out_dir, scene, frames, camera, window, sh, kappa, seed):
+def run_scene(binary, build_dir, out_dir, scene, frames, camera, window, sh, kappa, seed, goal):
     """One snapshot run of a scene; checks that every frame was written."""
     cmd = [binary, "-scene", str(scene), "-snapshot"] + [str(f) for f in frames]
     cmd += ["-window", str(window[0]), str(window[1]),
             "-sh", sh, "-kappa", f"{kappa:g}", "-seed", str(seed), "-snapshot-dir", out_dir]
     if camera:
         cmd += ["-camera"] + [f"{c:g}" for c in camera]
+    if goal > 0:
+        cmd += ["-goal", f"{goal:g}"]
     print("running:", " ".join(cmd), flush=True)
     if "ONEAPI_ROOT" not in os.environ and os.path.exists(SETVARS):
         cmd = ["bash", "-c", f'source "{SETVARS}" >/dev/null 2>&1; exec "$@"', "bash"] + cmd
@@ -78,6 +89,7 @@ def main():
                     help="SH projection driving the scene (default per scene; 'exact' = reference)")
     ap.add_argument("--kappa", type=float, help="vMF concentration k (default per scene)")
     ap.add_argument("--seed", type=int, default=1, help="seed of the initial placement")
+    ap.add_argument("--goal", type=float, help="goal-seeking weight, scenes 4 and 5 (default per scene)")
     ap.add_argument("--window", type=int, nargs=2, metavar=("W", "H"),
                     help="image size in pixels (default per scene)")
     ap.add_argument("--camera", type=float, nargs=6, metavar=("EX", "EY", "EZ", "CX", "CY", "CZ"),
@@ -103,7 +115,7 @@ def main():
         run_scene(binary, build_dir, out_dir, scene, frames,
                   a.camera or d.get("camera"), a.window or d.get("window", [1080, 1350]),
                   a.sh or d.get("sh", "exact"), a.kappa if a.kappa is not None else d.get("kappa", 2.95),
-                  a.seed)
+                  a.seed, a.goal if a.goal is not None else d.get("goal", 0.0))
 
 
 if __name__ == "__main__":

@@ -72,7 +72,6 @@ protected:
 	static constexpr float W_PATH = 2.0f;         // goal seeking of the other groups (as the tunnel)
 
 	float* d_groupSHvmf;    // vMF group coefficients (d_groupSH holds the Dirac ones)
-	sf4*   d_goal;          // per-boid goal, original order
 	float* d_gaunt;         // 9 x 9 x 9 Gaunt tensor, G[i*81 + j*9 + k]
 	sf4*   d_dirs;          // NUM_DIRS unit directions (Fibonacci sphere)
 	float* d_dirY;          // their 9 SH basis values, dirY[d*9 + k]

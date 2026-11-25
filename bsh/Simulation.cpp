@@ -239,6 +239,11 @@ Simulation::Simulation() {
 	accuracyCount = 0;
 	runSeed = -1;
 	headingSpread = 0.0f;
+	forcedNumBodies = 0;
+	targetNeighbours = 0.0f;
+	goalWeight = 0.0f;
+	spawnScale = 1.0f;
+	worldScale = 1.0f;
 	snapNext = 0;
 	snapStep = -1;
 	snapDir = ".";
@@ -323,6 +328,8 @@ void Simulation::restart(int modelNum){
 
 	boidModel = createModel(modelNum);
 	applySHProjection();
+	if (goalWeight > 0.0f && (modelNum == BOID_GRID_2D || modelNum == BOID_SH_2D))
+		boidModel->setGoalSeeking(goal, goalWeight);   // -goal w: scenes 4 and 5 only
 	if (accuracySteps > 0)
 		boidModel->setAccuracyRecording(true);
 	worldGround = new WorldGround(scene->flatGround, simParams.gridSize.x, simParams.gridSize.y, simParams.gridSize.z);
@@ -432,6 +439,9 @@ void Simulation::start(const RunOptions& options){
 	std::sort(snapFrames.begin(), snapFrames.end());
 	snapFrames.erase(std::unique(snapFrames.begin(), snapFrames.end()), snapFrames.end());
 	snapDir = options.snapshotDir;
+	forcedNumBodies = options.numAgents;
+	targetNeighbours = options.neighbours;
+	goalWeight = options.goalWeight;
 	// placements are reproducible when seeded; accuracy and snapshot runs always are
 	runSeed = options.seed;
 	if (runSeed < 0 && (accuracySteps > 0 || !snapFrames.empty())) runSeed = ACCURACY_DEFAULT_SEED;
@@ -521,6 +531,7 @@ void Simulation::timingReport(){
 	  << (boidModel->getSHProjectionName()[0] ? boidModel->getSHProjectionName() : "no SH")
 	  << ", " << statStep.count << " steps (+" << TIMING_WARMUP_STEPS << " warm-up), dt "
 	  << TIMING_FIXED_DT << "\n";
+	s << "  device: " << boidModel->getDeviceName() << "\n";
 	s << "  phase              mean us      min us      max us\n";
 	auto row = [&s](const char* name, const TimingStat& t){
 		char line[128];
@@ -626,7 +637,26 @@ void Simulation::switchToModel(int modelNum){
 	pendingModel = modelNum;	// keep in sync or simulationStep() switches back
 	currentSceneName = scene->name;
 
+	// -n N: scaling runs. By default the world and the start spheres grow by
+	// cbrt(N / N_scene), keeping the scene's layout and density. With -neighbours K
+	// the start spheres are instead sized so each agent has ~K group mates within the
+	// cohesion radius (GRID_ACCEL_CELL_SIZE): r = R_c * cbrt(M / K) for groups of M,
+	// and the world grows only as needed to keep them apart (W >= 5 r; the groups
+	// start a quarter of the world from its centre).
+	spawnScale = worldScale = 1.0f;
 	simParams.numBodies = scene->numBoids;
+	if (forcedNumBodies > 0){
+		simParams.numBodies = forcedNumBodies;
+		const float worldX = scene->gridX * CELL_SIZE_X;
+		if (targetNeighbours > 0.0f){
+			const int groups = (currentInitPlacement == 3) ? 4 : (currentInitPlacement == 1) ? 2 : 1;
+			const float r = GRID_ACCEL_CELL_SIZE * cbrtf((float)forcedNumBodies / groups / targetNeighbours);
+			spawnScale = r / (TEST_SETUP_RADIUS * CELL_SIZE_X);
+			worldScale = std::max(1.0f, 5.0f * r / worldX);
+		}
+		else
+			spawnScale = worldScale = cbrtf((float)forcedNumBodies / (float)scene->numBoids);
+	}
 	simParams.wAlignment = scene->wAlignment;
 	simParams.wCohesion = scene->wCohesion;
 	simParams.wSeparation = scene->wSeparation;
@@ -634,8 +664,10 @@ void Simulation::switchToModel(int modelNum){
 	simParams.wPath = scene->wPath;
 	simParams.maxVel = scene->maxVel;
 	simParams.maxVelCor = scene->maxVelCor;
-	simParams.gridSize = make_uint3(scene->gridX, scene->gridY, scene->gridZ);
-	simParams.numCells = scene->gridX * scene->gridY * scene->gridZ;
+	simParams.gridSize = make_uint3((unsigned int)ceilf(scene->gridX * worldScale),
+	                                (unsigned int)ceilf(scene->gridY * worldScale),
+	                                (unsigned int)ceilf(scene->gridZ * worldScale));
+	simParams.numCells = simParams.gridSize.x * simParams.gridSize.y * simParams.gridSize.z;
 
 	restart(currentModel);
 	GFX::getInstance().setCam(scene->cameraPreset);
@@ -748,6 +780,17 @@ static inline Vec4 dirTo(const Vec4& from, const Vec4& to, float speed){
 }
 
 Vec4 Simulation::clusterPos(float fx, float fy, float fz, float r){
+	if (forcedNumBodies > 0){
+		// scaled runs: uniform in the sphere's volume, so the density is the same
+		// everywhere (the default sampling below concentrates agents at the centre,
+		// which at millions of agents would dominate the local interaction cost)
+		const float cz = randFloat(-1.0f, 1.0f), ph = randFloat(0.0f, 2 * CL_M_PI);
+		const float sz = sqrtf(std::max(0.0f, 1.0f - cz * cz));
+		const float rr = r * cbrtf(randFloat(0.0f, 1.0f));
+		return Vec4(CELL_SIZE_X * simParams.gridSize.x * fx + rr * CELL_SIZE_X * sz * cosf(ph),
+		            CELL_SIZE_Y * simParams.gridSize.y * fy + rr * CELL_SIZE_Y * sz * sinf(ph),
+		            CELL_SIZE_Z * simParams.gridSize.z * fz + rr * CELL_SIZE_Z * cz, 1.f);
+	}
 	float theta = randFloat(0.0f, CL_M_PI);
 	float phi = randFloat(0.0f, 2 * CL_M_PI);
 	float x = CELL_SIZE_X * simParams.gridSize.x * fx + randFloat(0.0f, r * CELL_SIZE_X) * sin(theta) * cos(phi);
@@ -819,7 +862,7 @@ const char* Simulation::getPlacementName() const {
 }
 
 void Simulation::createData(std::vector<Vec4> *pos, std::vector<Vec4> *vel, std::vector<Vec4> *goal, std::vector<Vec4> *color){
-	const float r = TEST_SETUP_RADIUS;   // group start-spread radius (2x the old TEST_SETUP_RADIUS/2)
+	const float r = TEST_SETUP_RADIUS * spawnScale;   // group start-spread radius (scaled with -n)
 	const float maxVel = simParams.maxVel;
 
 	switch(currentInitPlacement){

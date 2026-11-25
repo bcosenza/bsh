@@ -80,13 +80,6 @@ public:
 
 protected:
 
-	// optional goal seeking (the OpenCL path term): each boid steers toward its own
-	// goal with weight pathWeight. Off (no goals, weight 0) unless a derived scene
-	// enables it -- the tunnel does, so boids are driven through the wall.
-	sf4*  d_goal;         // per-boid goal, original boid order (nullptr when off)
-	float pathWeight;
-	void enableGoalSeeking(const std::vector<Vec4>& goal, float weight);
-
 	// Reconstruct the vector-valued obstacle SH field at unit direction dir (from
 	// the obstacle point toward the boid). c points at that point's OBST_STRIDE
 	// coefficients. Any smoothing is already in the coefficients (it is the

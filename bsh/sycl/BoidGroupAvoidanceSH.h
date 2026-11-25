@@ -67,9 +67,19 @@ protected:
 public:
 	// "SH: Dirac" or "SH: vMF (k=...)", for the overlay
 	const char* getSHProjectionName();
+	// opt-in goal seeking from the command line (-goal w, scenes 4 and 5)
+	void setGoalSeeking(const std::vector<Vec4>& goal, float weight){ enableGoalSeeking(goal, weight); }
 
 protected:
 	std::string shProjectionName;
+
+	// optional goal seeking (the OpenCL path term): each boid steers toward its own
+	// goal with weight pathWeight. Off (no goals, weight 0) unless a scene enables it
+	// -- the tunnel and the accuracy scenes do, scenes 4 and 5 with -goal w -- so the
+	// groups keep their course instead of milling once the flocking rules slow them.
+	sf4*  d_goal;         // per-boid goal, original boid order (nullptr when off)
+	float pathWeight;
+	void enableGoalSeeking(const std::vector<Vec4>& goal, float weight);
 
 	// group of boid i: boids are split into ng contiguous index buckets
 	static int groupOf(int i, int n, int ng)

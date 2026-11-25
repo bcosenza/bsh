@@ -38,6 +38,7 @@ public:
 	void setSHProjection(int mode, float k);
 	int getSHProjection() { return (int)shMode; }
 	PhaseTimes getPhaseTimes() { return phaseTimes; }
+	std::string getDeviceName() { return queue.get_device().get_info<sycl::info::device::name>(); }
 
 protected:
 	// neighbourhood bounding-box factor (matches boidModelSimple_kernel_v2.cl):

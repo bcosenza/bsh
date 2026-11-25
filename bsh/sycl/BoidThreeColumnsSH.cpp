@@ -25,8 +25,6 @@ BoidThreeColumnsSH::BoidThreeColumnsSH(std::vector<Vec4> pos, std::vector<Vec4> 
 {
 	simTimeDisc[0] = "Three columns avoidance with SH";
 	obstStrength = 3.0f;
-	d_goal = nullptr;      // goal seeking off unless enableGoalSeeking() is called
-	pathWeight = 0.0f;
 	numObst = (int)posObst.size();
 
 	d_obstacleSH    = sycl::malloc_device<float>((size_t)numObst * OBST_STRIDE, queue);
@@ -83,15 +81,7 @@ BoidThreeColumnsSH::~BoidThreeColumnsSH(){
 	sycl::free(d_obstacleSH, queue);
 	sycl::free(d_obstacleSHvmf, queue);
 	sycl::free(d_posObst, queue);
-	if (d_goal) sycl::free(d_goal, queue);
-	// ~BoidGroupAvoidanceSH frees the group SH; ~BoidGridBase / ~BoidModelSimpleSYCL the rest
-}
-
-void BoidThreeColumnsSH::enableGoalSeeking(const std::vector<Vec4>& goal, float weight){
-	if (d_goal == nullptr)
-		d_goal = sycl::malloc_device<sf4>(num, queue);
-	queue.memcpy(d_goal, goal.data(), (size_t)num * sizeof(Vec4)).wait();   // Vec4 == sf4 layout
-	pathWeight = weight;
+	// ~BoidGroupAvoidanceSH frees the group SH and goals; ~BoidGridBase / ~BoidModelSimpleSYCL the rest
 }
 
 void BoidThreeColumnsSH::simulate(float dt){

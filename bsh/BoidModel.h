@@ -93,6 +93,11 @@ public:
 
 	/* Phase durations of the last simulate() call (zero if not measured) */
 	virtual PhaseTimes getPhaseTimes() { return PhaseTimes(); }
+	/* Name of the compute device the model runs on ("" if not applicable) */
+	virtual std::string getDeviceName() { return ""; }
+
+	/* Opt-in goal seeking with the given weight (models with group SH; -goal w) */
+	virtual void setGoalSeeking(const std::vector<Vec4>& goal, float weight) {}
 
 	/* Accuracy study (SYCL scenes 8 and 9). supportsExactReference: the model can be
 	driven by the brute-force reference (SH_PROJECTION_EXACT). With recording on, each

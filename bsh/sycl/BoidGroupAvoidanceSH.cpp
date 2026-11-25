@@ -22,12 +22,15 @@ BoidGroupAvoidanceSH::BoidGroupAvoidanceSH(std::vector<Vec4> pos, std::vector<Ve
 {
 	// one order-3 SH coefficient set per group, stored on the device
 	d_groupSH = sycl::malloc_device<float>(numGroups * SH_COEFFS, queue);
+	d_goal = nullptr;      // goal seeking off unless enableGoalSeeking() is called
+	pathWeight = 0.0f;
 	queue.wait();
 }
 
 BoidGroupAvoidanceSH::~BoidGroupAvoidanceSH(){
 	queue.wait();
 	sycl::free(d_groupSH, queue);
+	if (d_goal) sycl::free(d_goal, queue);
 	// ~BoidGridBase / ~BoidModelSimpleSYCL free the rest
 }
 
@@ -38,6 +41,13 @@ const char* BoidGroupAvoidanceSH::getSHProjectionName(){
 	else                              s << "SH: Dirac";
 	shProjectionName = s.str();
 	return shProjectionName.c_str();
+}
+
+void BoidGroupAvoidanceSH::enableGoalSeeking(const std::vector<Vec4>& goal, float weight){
+	if (d_goal == nullptr)
+		d_goal = sycl::malloc_device<sf4>(num, queue);
+	queue.memcpy(d_goal, goal.data(), (size_t)num * sizeof(Vec4)).wait();   // Vec4 == sf4 layout
+	pathWeight = weight;
 }
 
 void BoidGroupAvoidanceSH::projectGroupSH(){
@@ -126,6 +136,8 @@ void BoidGroupAvoidanceSH::simulate(float dt){
 	float* groupSH = d_groupSH;
 	const int   ngLocal    = ng;
 	const float shStrength = shAvoidStrength;
+	const sf4*  goal       = d_goal;
+	const float wPath      = pathWeight;
 
 	sycl::event ev = queue.parallel_for(sycl::range<1>(n), [=](sycl::id<1> idx){
 		const int k = (int)idx[0];
@@ -143,7 +155,12 @@ void BoidGroupAvoidanceSH::simulate(float dt){
 		const sf4 shSteer = groupSHSteer(v, groupOf(orig, n, ngLocal), ngLocal, groupSH, shStrength);
 
 		// combine local + SH steering, then integrate (shared dynamics)
-		advanceBoid(p, v, steer + shSteer, sp, dt);
+		// optional goal seeking (-goal w), so the groups keep their course
+		sf4 path = sf4(0.0f);
+		if (wPath > 0.0f)
+			path = safeNormalize(goal[orig] - p) * wPath;
+
+		advanceBoid(p, v, steer + shSteer + path, sp, dt);
 
 		outPos[orig] = p;
 		outVel[orig] = v;

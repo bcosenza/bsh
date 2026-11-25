@@ -78,14 +78,15 @@ BoidCompositionSH::BoidCompositionSH(std::vector<Vec4> pos, std::vector<Vec4> ve
 	}
 
 	d_groupSHvmf = sycl::malloc_device<float>(numGroups * SH_COEFFS, queue);
-	d_goal       = sycl::malloc_device<sf4>(num, queue);
 	d_gaunt      = sycl::malloc_device<float>(gaunt.size(), queue);
 	d_dirs       = sycl::malloc_device<sf4>(NUM_DIRS, queue);
 	d_dirY       = sycl::malloc_device<float>(dirY.size(), queue);
 	d_refTable   = sycl::malloc_device<float>(2 * NUM_DIRS, queue);
 	d_compSH     = sycl::malloc_device<float>(2 * SH_COEFFS, queue);
 	d_refG       = sycl::malloc_device<float>(NUM_DIRS, queue);
-	queue.memcpy(d_goal, goal.data(), (size_t)num * sizeof(Vec4));   // Vec4 == sf4 layout
+	// goals in the inherited buffer; the weight is unused (simulate applies W_PATH to
+	// the non-red groups itself)
+	enableGoalSeeking(goal, W_PATH);
 	queue.memcpy(d_gaunt, gaunt.data(), gaunt.size() * sizeof(float));
 	queue.memcpy(d_dirs, dirs.data(), dirs.size() * sizeof(sf4));
 	queue.memcpy(d_dirY, dirY.data(), dirY.size() * sizeof(float));
@@ -102,7 +103,6 @@ BoidCompositionSH::BoidCompositionSH(std::vector<Vec4> pos, std::vector<Vec4> ve
 BoidCompositionSH::~BoidCompositionSH(){
 	queue.wait();
 	sycl::free(d_groupSHvmf, queue);
-	sycl::free(d_goal, queue);
 	sycl::free(d_gaunt, queue);
 	sycl::free(d_dirs, queue);
 	sycl::free(d_dirY, queue);

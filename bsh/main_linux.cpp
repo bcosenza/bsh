@@ -10,7 +10,7 @@ static void usage(const char* prog){
         "usage: %s [scene] [-scene n] [-sh dirac|vmf|exact] [-kappa k] [-timing t]\n"
         "          [-accuracy t] [-out file.csv] [-seed s] [-hspread kh]\n"
         "          [-snapshot f1 f2 ...] [-snapshot-dir dir] [-window w h]\n"
-        "          [-camera ex ey ez cx cy cz]\n"
+        "          [-camera ex ey ez cx cy cz] [-n N] [-neighbours K] [-goal w]\n"
         "  scene, -scene n  scene to start in (keys 1-9)\n"
         "  -sh dirac|vmf|exact\n"
         "                   SH projection kernel (switch at runtime with 'p'); 'exact' drives\n"
@@ -33,7 +33,13 @@ static void usage(const char* prog){
         "  -window w h      window (and snapshot) size in pixels (default 640 480)\n"
         "  -camera ex ey ez cx cy cz\n"
         "                   fixed camera: eye position and look-at point (world units),\n"
-        "                   replacing the scene's camera preset\n",
+        "                   replacing the scene's camera preset\n"
+        "  -n N             number of agents (scaling tests): the world and the start\n"
+        "                   spheres grow by cbrt(N / N_scene), keeping layout and density\n"
+        "  -neighbours K    with -n: size the start spheres for ~K group mates within the\n"
+        "                   cohesion radius instead, and the world to fit them\n"
+        "  -goal w          scenes 4 and 5: each group seeks its goal (the opposite\n"
+        "                   group's start) with weight w, so the groups keep their course\n",
         prog, SH_VMF_KAPPA, TIMING_WARMUP_STEPS, ACCURACY_DEFAULT_SEED, ACCURACY_DEFAULT_SEED);
 }
 
@@ -52,6 +58,9 @@ int main(int argc, char* argv[]) {
         else if (!std::strcmp(a, "-seed") && hasValue)     opt.seed = std::atoi(argv[++i]);
         else if (!std::strcmp(a, "-hspread") && hasValue)  opt.headingSpread = (float)std::atof(argv[++i]);
         else if (!std::strcmp(a, "-scene") && hasValue)    opt.model = std::atoi(argv[++i]);
+        else if (!std::strcmp(a, "-n") && hasValue)        opt.numAgents = (unsigned int)std::strtoul(argv[++i], nullptr, 10);
+        else if (!std::strcmp(a, "-neighbours") && hasValue) opt.neighbours = (float)std::atof(argv[++i]);
+        else if (!std::strcmp(a, "-goal") && hasValue)     opt.goalWeight = (float)std::atof(argv[++i]);
         else if (!std::strcmp(a, "-kappa") && hasValue)    opt.vmfK = (float)std::atof(argv[++i]);
         else if (!std::strcmp(a, "-snapshot-dir") && hasValue) opt.snapshotDir = argv[++i];
         else if (!std::strcmp(a, "-snapshot")){
@@ -79,7 +88,7 @@ int main(int argc, char* argv[]) {
         else if (a[0] != '-')                              opt.model = std::atoi(a);   // positional scene
         else { usage(argv[0]); return 1; }
     }
-    if (opt.vmfK <= 0.0f || opt.headingSpread < 0.0f){ usage(argv[0]); return 1; }
+    if (opt.vmfK <= 0.0f || opt.headingSpread < 0.0f || opt.neighbours < 0.0f || opt.goalWeight < 0.0f){ usage(argv[0]); return 1; }
     const int modes = (opt.timingSteps > 0) + (opt.accuracySteps > 0) + !opt.snapshotFrames.empty();
     if (modes > 1){
         std::fprintf(stderr, "-timing, -accuracy and -snapshot cannot be combined\n");

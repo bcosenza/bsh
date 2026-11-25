@@ -41,6 +41,10 @@ struct RunOptions {
 	float headingSpread = 0.0f;				// lane scenes: vMF concentration of the initial heading noise (0 = none)
 	std::vector<int> snapshotFrames;		// write a PNG after these steps (fixed dt, no overlay), then quit
 	std::string snapshotDir = ".";			// where the snapshots are written
+	unsigned int numAgents = 0;				// >0: agent count; world and start spheres scale with it
+	float neighbours = 0.0f;				// >0 (with numAgents): size the start spheres for ~this many
+											// group mates within the cohesion radius
+	float goalWeight = 0.0f;				// >0: scenes 4 and 5 seek their goals with this weight
 };
 
 /*
@@ -129,6 +133,17 @@ private:
 	void accuracyFinish();
 	//lane scenes: vMF concentration of the initial heading noise (0 = none)
 	float headingSpread;
+
+	//agent-count scaling (-n N, -neighbours K): a forced agent count (0 = the
+	//scene's), the target neighbourhood size (0 = keep the scene's density), and the
+	//resulting scale factors of the start-sphere radius and of the world (1 = the
+	//scene as defined); scaled runs sample the start spheres uniformly
+	unsigned int forcedNumBodies;
+	float targetNeighbours;
+	//goal-seeking weight for scenes 4 and 5 (-goal w; 0 = off, the scenes as defined)
+	float goalWeight;
+	float spawnScale;
+	float worldScale;
 
 	//snapshot mode (-snapshot f1 f2 ...): frames still to write (sorted), the next
 	//one, steps simulated in the scene (-1 before its first frame), output folder
